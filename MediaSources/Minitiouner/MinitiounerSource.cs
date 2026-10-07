@@ -268,7 +268,7 @@ namespace opentuner.MediaSources.Minitiouner
 
             
 
-            if (_tuner_forms[device] != null)
+            if (_tuner_forms != null && device < _tuner_forms.Count && _tuner_forms[device] != null)
             {
                 _tuner_forms[device].UpdateTuner( (device == 0) ? current_frequency_0 : current_frequency_1, (device == 0) ? current_sr_0 : current_sr_0, (device == 0 ) ? current_offset_0 : current_offset_1);
             }
@@ -281,8 +281,17 @@ namespace opentuner.MediaSources.Minitiouner
         //}
 
         public override int Initialize(VideoChangeCallback VideoChangeCB, Control Parent)
-        {            
-            switch (_settings.DefaultInterface)
+        {
+            byte defaultInterface = _settings.DefaultInterface;
+
+            // Headless (WPF) mode: never pop up the WinForms choose-interface dialog.
+            if (Parent == null && defaultInterface == 0)
+            {
+                defaultInterface = 2;   // default to PicoTuner
+                Log.Warning("No default hardware interface set - defaulting to PicoTuner (set it in source settings)");
+            }
+
+            switch (defaultInterface)
             {
                 case 0:
                     var hw_ask = new ChooseMinitiounerHardwareInterfaceForm();
@@ -415,7 +424,7 @@ namespace opentuner.MediaSources.Minitiouner
                     break;
             }
 
-            if (_tuner_forms[Tuner] != null)
+            if (_tuner_forms != null && Tuner < _tuner_forms.Count && _tuner_forms[Tuner] != null)
             {
                 _tuner_forms[Tuner].UpdateTuner((Tuner == 0) ? current_frequency_0 : current_frequency_1, (Tuner == 0) ? current_sr_0 : current_sr_0, (Tuner == 0) ? current_offset_0 : current_offset_1);
             }
@@ -432,7 +441,10 @@ namespace opentuner.MediaSources.Minitiouner
 
             if (!hardware_connected)
             {
-                MessageBox.Show("Error: No Working Hardware Detected");
+                if (Parent != null)
+                    MessageBox.Show("Error: No Working Hardware Detected");
+                else
+                    Log.Error("No working Minitiouner/PicoTuner hardware detected");
                 return -1;
             }
 
@@ -891,6 +903,13 @@ namespace opentuner.MediaSources.Minitiouner
             if (ts_thread2 != null) { bool stopped = false; ts_thread2.Stop(ref stopped); }
 
             try { hardware_interface?.hw_close(); } catch { }
+        }
+
+        public override object GetSettingsObject() => _settings;
+
+        public override void PersistSettings()
+        {
+            try { _settingsManager.SaveSettings(_settings); } catch { }
         }
 
         public override void ShowSettings()

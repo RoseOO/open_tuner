@@ -59,6 +59,12 @@ namespace opentuner.MediaSources
         // initialize returns how many video players it need
         public abstract int Initialize(VideoChangeCallback VideoChangeCB, Control Parent);
 
+        // WPF / headless initialise: no WinForms parent, no property UI is built.
+        public int InitializeHeadless(VideoChangeCallback VideoChangeCB)
+        {
+            return Initialize(VideoChangeCB, null);
+        }
+
         public abstract void ConfigureVideoPlayers(List<OTMediaPlayer> MediaPlayers);
 
         public abstract void ConfigureTSRecorders(List<TSRecorder> TSRecorders);
@@ -73,6 +79,63 @@ namespace opentuner.MediaSources
         public abstract void OverrideDefaultMuted(bool Override);
 
         public abstract void UpdateFrequencyPresets(List<StoredFrequency> FrequencyPresets);
+
+        // ---- UI-agnostic property model (used by the WPF host) ----
+        public virtual List<PropertyGroupDescriptor> GetPropertyGroups()
+        {
+            return new List<PropertyGroupDescriptor>();
+        }
+
+        public virtual string GetPropertyValue(int groupId, string key)
+        {
+            return "";
+        }
+
+        public virtual void SetPropertySlider(int groupId, string key, int value)
+        {
+        }
+
+        public virtual void SetPropertyMediaButton(int groupId, string key, int function)
+        {
+        }
+
+        // Right-click menu for a property (tuner control, RF input, symbol rate, LNB, presets...)
+        public virtual List<PropertyMenuOption> GetPropertyMenu(int groupId, string key)
+        {
+            return new List<PropertyMenuOption>();
+        }
+
+        public virtual void InvokePropertyCommand(int groupId, string key, int command, int[] options)
+        {
+        }
+
+        // Media button state bitmask: 1 = muted, 2 = recording, 4 = udp streaming.
+        public virtual int GetMediaButtonState(int groupId)
+        {
+            return 0;
+        }
+
+        // Raised when "Tuner Control" is chosen for a property. The WPF host
+        // subscribes and shows its own tune dialog; the WinForms host falls back
+        // to the per-tuner TunerControlForm.
+        public event Action<int> TunerControlRequested;
+
+        protected bool HasTunerControlSubscribers => TunerControlRequested != null;
+
+        protected void RaiseTunerControlRequested(int tuner)
+        {
+            TunerControlRequested?.Invoke(tuner);
+        }
+
+        // ---- Settings access for the WPF host ----
+        public virtual object GetSettingsObject()
+        {
+            return null;
+        }
+
+        public virtual void PersistSettings()
+        {
+        }
 
     }
 }

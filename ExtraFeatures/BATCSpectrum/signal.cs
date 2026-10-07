@@ -9,7 +9,7 @@ using System.Threading.Tasks;
 
 namespace opentuner
 {
-    class signal
+    public class signal
     {
 
         public int beacon_strength = -1;

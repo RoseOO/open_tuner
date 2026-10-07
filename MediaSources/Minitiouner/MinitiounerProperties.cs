@@ -1,4 +1,4 @@
-﻿using LibVLCSharp.Shared;
+using LibVLCSharp.Shared;
 using NAudio.Gui;
 using Newtonsoft.Json.Linq;
 using opentuner.Utilities;
@@ -53,14 +53,13 @@ namespace opentuner.MediaSources.Minitiouner
         private List<StoredFrequency> _frequency_presets = null;
         private bool BuildSourceProperties()
         {
-            if (_parent == null)
-            {
-                Log.Information("Fatal Error: No Properties Panel");
-                return false;
-            }
+            bool headless = _parent == null;
 
-            _genericContextStrip = new ContextMenuStrip();
-            _genericContextStrip.Opening += _genericContextStrip_Opening;
+            if (!headless)
+            {
+                _genericContextStrip = new ContextMenuStrip();
+                _genericContextStrip.Opening += _genericContextStrip_Opening;
+            }
 
 
             if (ts_devices == 2)
@@ -113,6 +112,12 @@ namespace opentuner.MediaSources.Minitiouner
             // tuner for each device
             for (int c = 0; c < ts_devices; c++)
             {
+                if (headless)
+                {
+                    _tuner_forms.Add(null);
+                    continue;
+                }
+
                 var tunerControl = new TunerControlForm(c, 0, 0, (c == 0 ? current_offset_0 : current_offset_1), this);
                 tunerControl.OnTunerChange += TunerControl_OnTunerChange;
                 _tuner_forms.Add(tunerControl);
@@ -168,6 +173,126 @@ namespace opentuner.MediaSources.Minitiouner
 //        {
 //            indicatorInput &= (byte)~(1 << (int)indicator);
 //        }
+
+        // ---- WPF property model ----
+        public override List<PropertyGroupDescriptor> GetPropertyGroups()
+        {
+            var list = new List<PropertyGroupDescriptor>();
+            AddDesc(list, _tuner1_properties);
+            AddDesc(list, _tuner2_properties);
+            AddDesc(list, _source_properties);
+            return list;
+        }
+
+        private static void AddDesc(List<PropertyGroupDescriptor> list, DynamicPropertyGroup g)
+        {
+            if (g == null)
+                return;
+
+            list.Add(new PropertyGroupDescriptor { Id = g.getID(), Title = g.Title, Items = g.GetDescriptors() });
+        }
+
+        private DynamicPropertyGroup FindPropertyGroup(int id)
+        {
+            foreach (var g in new[] { _tuner1_properties, _tuner2_properties, _source_properties })
+                if (g != null && g.getID() == id)
+                    return g;
+
+            return null;
+        }
+
+        public override string GetPropertyValue(int groupId, string key)
+        {
+            return FindPropertyGroup(groupId)?.GetValue(key) ?? "";
+        }
+
+        public override void SetPropertySlider(int groupId, string key, int value)
+        {
+            DynamicPropertyGroup_OnSliderChanged(key, value);
+        }
+
+        public override void SetPropertyMediaButton(int groupId, string key, int function)
+        {
+            DynamicPropertyGroup_OnMediaButtonPressed(key, function);
+        }
+
+        public override List<PropertyMenuOption> GetPropertyMenu(int groupId, string key)
+        {
+            var list = new List<PropertyMenuOption>();
+            int tuner = groupId - 1;   // tuner groups are setID(1) / setID(2)
+
+            switch (key)
+            {
+                case "requested_freq_1":
+                case "requested_freq_2":
+                    {
+                        int t = key.EndsWith("2") ? 1 : 0;
+                        list.Add(new PropertyMenuOption { Label = "Tuner Control", Command = (int)MinitiounerPropertyCommands.SETFREQUENCY, Options = new[] { t } });
+
+                        if (_frequency_presets != null && _frequency_presets.Count > 0)
+                        {
+                            list.Add(new PropertyMenuOption { Separator = true });
+                            for (int c = 0; c < _frequency_presets.Count; c++)
+                                list.Add(new PropertyMenuOption { Label = _frequency_presets[c].Name + " (" + _frequency_presets[c].Frequency + ")", Command = (int)MinitiounerPropertyCommands.SETPRESET, Options = new[] { t, c } });
+                        }
+                    }
+                    break;
+
+                case "rf_input":
+                    list.Add(new PropertyMenuOption { Label = "A", Command = (int)MinitiounerPropertyCommands.SETRFINPUTA, Options = new[] { tuner } });
+                    list.Add(new PropertyMenuOption { Label = "B", Command = (int)MinitiounerPropertyCommands.SETRFINPUTB, Options = new[] { tuner } });
+                    break;
+
+                case "symbol_rate":
+                    foreach (uint rate in new uint[] { 2000, 1500, 1000, 500, 333, 250, 125, 66 })
+                        list.Add(new PropertyMenuOption { Label = rate.ToString(), Command = (int)MinitiounerPropertyCommands.SETSYMBOLRATE, Options = new[] { tuner, (int)rate } });
+                    break;
+
+                case "offset":
+                    list.Add(new PropertyMenuOption { Label = "Default: " + (tuner == 0 ? _settings.Offset1 : _settings.Offset2), Command = (int)MinitiounerPropertyCommands.SETOFFSET, Options = new[] { tuner, 0 } });
+                    list.Add(new PropertyMenuOption { Label = "Zero", Command = (int)MinitiounerPropertyCommands.SETOFFSET, Options = new[] { tuner, 1 } });
+                    break;
+
+                case "hw_lnba":
+                    list.Add(new PropertyMenuOption { Label = "OFF", Command = (int)MinitiounerPropertyCommands.LNBA_OFF, Options = new[] { 0, 0 } });
+                    list.Add(new PropertyMenuOption { Label = "Switch Vertical", Command = (int)MinitiounerPropertyCommands.LNBA_VERTICAL, Options = new[] { 0, 0 } });
+                    list.Add(new PropertyMenuOption { Label = "Switch Horizontal", Command = (int)MinitiounerPropertyCommands.LNBA_HORIZONTAL, Options = new[] { 0, 0 } });
+                    break;
+
+                case "hw_lnbb":
+                    list.Add(new PropertyMenuOption { Label = "OFF", Command = (int)MinitiounerPropertyCommands.LNBB_OFF, Options = new[] { 0, 0 } });
+                    list.Add(new PropertyMenuOption { Label = "Switch Vertical", Command = (int)MinitiounerPropertyCommands.LNBB_VERTICAL, Options = new[] { 0, 0 } });
+                    list.Add(new PropertyMenuOption { Label = "Switch Horizontal", Command = (int)MinitiounerPropertyCommands.LNBB_HORIZONTAL, Options = new[] { 0, 0 } });
+                    break;
+            }
+
+            return list;
+        }
+
+        public override void InvokePropertyCommand(int groupId, string key, int command, int[] options)
+        {
+            try
+            {
+                properties_OnPropertyMenuSelect((MinitiounerPropertyCommands)command, options ?? new int[0]);
+            }
+            catch (Exception ex)
+            {
+                Log.Error(ex, "Minitiouner property command failed (" + command + ")");
+            }
+        }
+
+        public override int GetMediaButtonState(int groupId)
+        {
+            int tuner = groupId - 1;
+            if (tuner < 0 || tuner > 1)
+                return 0;
+
+            int s = 0;
+            if (muted != null && tuner < muted.Length && muted[tuner]) s |= 1;
+            if (_ts_recorders != null && tuner < _ts_recorders.Count && _ts_recorders[tuner] != null && _ts_recorders[tuner].record) s |= 2;
+            if (_ts_streamers != null && tuner < _ts_streamers.Count && _ts_streamers[tuner] != null && _ts_streamers[tuner].stream) s |= 4;
+            return s;
+        }
 
         private void DynamicPropertyGroup_OnMediaButtonPressed(string key, int function)
         {
@@ -320,6 +445,7 @@ namespace opentuner.MediaSources.Minitiouner
                     }
                     
                     _settings.DefaultVolume[0] = (byte)value;
+                    _tuner1_properties.UpdateValue("volume_slider_1", value.ToString());
                     _tuner1_properties.UpdateMuteButtonColor("media_controls_1", Color.Transparent);
                     break;
                 case "volume_slider_2":
@@ -330,6 +456,7 @@ namespace opentuner.MediaSources.Minitiouner
                         _media_player[1]?.SetVolume(value);
                     }
                     _settings.DefaultVolume[1] = (byte)value;
+                    _tuner2_properties.UpdateValue("volume_slider_2", value.ToString());
                     _tuner2_properties.UpdateMuteButtonColor("media_controls_2", Color.Transparent);
                     break;
             }
@@ -721,7 +848,14 @@ namespace opentuner.MediaSources.Minitiouner
             {
                 case MinitiounerPropertyCommands.SETFREQUENCY:
                     tuner = options[0];
-                    _tuner_forms[tuner].ShowTuner((tuner == 0 ? current_frequency_0 : current_frequency_1), (tuner == 0 ? current_sr_0 : current_sr_1), (tuner == 0 ? current_offset_0 : current_offset_1));
+                    if (HasTunerControlSubscribers)
+                    {
+                        RaiseTunerControlRequested(tuner);
+                    }
+                    else if (_tuner_forms != null && tuner >= 0 && tuner < _tuner_forms.Count && _tuner_forms[tuner] != null)
+                    {
+                        _tuner_forms[tuner].ShowTuner((tuner == 0 ? current_frequency_0 : current_frequency_1), (tuner == 0 ? current_sr_0 : current_sr_1), (tuner == 0 ? current_offset_0 : current_offset_1));
+                    }
                     break;
                 case MinitiounerPropertyCommands.SETRFINPUTA:
                     ChangeRFInput((byte)options[0], nim.NIM_INPUT_TOP);
@@ -892,3 +1026,4 @@ namespace opentuner.MediaSources.Minitiouner
         }
     }
 }
+

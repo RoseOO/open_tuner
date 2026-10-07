@@ -1,0 +1,219 @@
+<Window x:Class="OpenTuner.Wpf.MainWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:sdr="clr-namespace:OpenTuner.Wpf.Sdr"
+        Title="Open Tuner"
+        Width="1300" Height="840" MinWidth="900" MinHeight="600"
+        Background="{DynamicResource WindowBackground}"
+        FontFamily="Segoe UI" FontSize="13"
+        TextOptions.TextFormattingMode="Display"
+        UseLayoutRounding="True"
+        SnapsToDevicePixels="True">
+
+    <DockPanel>
+
+        <Menu x:Name="mainMenu" DockPanel.Dock="Top" Padding="6,2">
+            <MenuItem Header="Open Tuner">
+                <MenuItem Header="Settings..." Click="Settings_Click" />
+                <MenuItem Header="Manage Frequency Presets..." Click="Presets_Click" />
+                <MenuItem Header="Disconnect" Click="Disconnect_Click" />
+                <Separator />
+                <MenuItem x:Name="menuDarkMode" Header="Dark mode" IsCheckable="True" Click="DarkMode_Click" />
+                <Separator />
+                <MenuItem Header="Quit" Click="Quit_Click" />
+            </MenuItem>
+            <MenuItem Header="View">
+                <MenuItem Header="Tune to Frequency..." Click="Tune_Click" />
+                <Separator />
+                <MenuItem Header="Full Screen" Click="FullScreen_Click" InputGestureText="F11" />
+                <MenuItem Header="Two-tuner layout">
+                    <MenuItem x:Name="menuSideBySide" Header="Side by side" IsCheckable="True" IsChecked="True" Click="LayoutSideBySide_Click" />
+                    <MenuItem x:Name="menuStacked" Header="Stacked" IsCheckable="True" Click="LayoutStacked_Click" />
+                </MenuItem>
+                <Separator />
+                <MenuItem Header="Hide Properties" Click="HideProps_Click" />
+                <MenuItem Header="Hide Spectrum" Click="HideSpectrum_Click" />
+                <Separator />
+                <MenuItem Header="Debug Log..." Click="DebugLog_Click" />
+            </MenuItem>
+            <MenuItem Header="Features">
+                <MenuItem Header="MQTT Client Settings..." Click="MqttSettings_Click" />
+                <MenuItem Header="QuickTune Settings..." Click="QuickTuneSettings_Click" />
+                <MenuItem Header="DATV Reporter Settings..." Click="DatvSettings_Click" />
+                <MenuItem Header="Web Chat Settings..." Click="WebChatSettings_Click" />
+                <Separator />
+                <MenuItem Header="Web Chat..." Click="WebChat_Click" />
+                <MenuItem Header="PicoTuner (WH) Broadcast Listener..." Click="BroadcastListener_Click" />
+                <MenuItem Header="Hardware Info..." Click="HardwareInfo_Click" />
+                <MenuItem Header="External Tools..." Click="ExternalTools_Click" />
+                <MenuItem Header="Pluto Control..." Click="PlutoControl_Click" />
+            </MenuItem>
+            <MenuItem Header="Help">
+                <MenuItem Header="Documentation" Tag="https://www.zr6tg.co.za/opentuner-documentation/" Click="Link_Click" />
+                <MenuItem Header="OpenTuner Updates" Tag="https://www.zr6tg.co.za/open-tuner/" Click="Link_Click" />
+                <Separator />
+                <MenuItem Header="GitHub Issues" Tag="https://github.com/tomvdb/open_tuner/issues" Click="Link_Click" />
+                <MenuItem Header="BATC Forums" Tag="https://forum.batc.org.uk/viewforum.php?f=142" Click="Link_Click" />
+                <MenuItem Header="British Amateur Television Club" Tag="https://batc.org.uk/" Click="Link_Click" />
+                <Separator />
+                <MenuItem Header="Add 2nd TS to Minitiouner Article" Tag="https://www.zr6tg.co.za/adding-2nd-transport-to-batc-minitiouner-v2/" Click="Link_Click" />
+                <MenuItem Header="PicoTuner Article" Tag="https://www.zr6tg.co.za/2024/02/11/picotuner-an-experimental-dual-ts-alternative/" Click="Link_Click" />
+                <MenuItem Header="Support (Buy me a coffee)" Tag="https://www.buymeacoffee.com/zr6tg/" Click="Link_Click" />
+            </MenuItem>
+        </Menu>
+
+        <Grid>
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition x:Name="leftColumn" Width="340" MinWidth="300" />
+                <ColumnDefinition Width="4" />
+                <ColumnDefinition Width="*" />
+            </Grid.ColumnDefinitions>
+
+            <!-- Left: sources + extra features -->
+            <ScrollViewer x:Name="leftPanel" Grid.Column="0" VerticalScrollBarVisibility="Auto" Padding="12">
+                <StackPanel>
+
+                    <Border x:Name="sourceSelCard" Style="{StaticResource Card}">
+                        <StackPanel>
+                            <TextBlock Text="SOURCE SELECTION" Style="{StaticResource CardTitle}" />
+                            <ComboBox x:Name="comboSources" Margin="0,12,0,0"
+                                      SelectionChanged="ComboSources_SelectionChanged" />
+                            <TextBlock x:Name="txtSourceInfo" Style="{StaticResource CardSubtitle}"
+                                       Margin="0,12,0,0" TextWrapping="Wrap" />
+                            <StackPanel Orientation="Horizontal" Margin="0,16,0,0">
+                                <Button Content="Connect" Style="{StaticResource PrimaryButton}"
+                                        Width="120" Click="Connect_Click" />
+                                <Button Content="Source Settings" Margin="10,0,0,0" Click="SourceSettings_Click" />
+                            </StackPanel>
+                        </StackPanel>
+                    </Border>
+
+                    <Border x:Name="extraCard" Style="{StaticResource Card}" Margin="0,12,0,0">
+                        <StackPanel>
+                            <TextBlock Text="EXTRA FEATURES" Style="{StaticResource CardTitle}" />
+
+                            <Grid Margin="0,12,0,0">
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="*" />
+                                    <ColumnDefinition Width="Auto" />
+                                </Grid.ColumnDefinitions>
+                                <CheckBox x:Name="chkBatcSpectrum" Content="BATC Spectrum (QO-100)" VerticalAlignment="Center" />
+                                <Button Grid.Column="1" Content="Info" Padding="8,2" Click="BatcSpectrumInfo_Click" />
+                            </Grid>
+
+                            <Grid Margin="0,8,0,0">
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="*" />
+                                    <ColumnDefinition Width="Auto" />
+                                </Grid.ColumnDefinitions>
+                                <CheckBox x:Name="chkBatcChat" Content="BATC Chat (QO-100)" VerticalAlignment="Center" />
+                                <Button Grid.Column="1" Content="Settings" Padding="8,2" Click="WebChatSettings_Click" />
+                            </Grid>
+
+                            <Grid Margin="0,8,0,0">
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="*" />
+                                    <ColumnDefinition Width="Auto" />
+                                </Grid.ColumnDefinitions>
+                                <CheckBox x:Name="chkMqtt" Content="MQTT Client" VerticalAlignment="Center" />
+                                <Button Grid.Column="1" Content="Settings" Padding="8,2" Click="MqttSettings_Click" />
+                            </Grid>
+
+                            <Grid Margin="0,8,0,0">
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="*" />
+                                    <ColumnDefinition Width="Auto" />
+                                </Grid.ColumnDefinitions>
+                                <CheckBox x:Name="chkQuicktune" Content="Quick Tune Control" VerticalAlignment="Center" />
+                                <Button Grid.Column="1" Content="Settings" Padding="8,2" Click="QuickTuneSettings_Click" />
+                            </Grid>
+
+                            <Grid Margin="0,8,0,0">
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="*" />
+                                    <ColumnDefinition Width="Auto" />
+                                </Grid.ColumnDefinitions>
+                                <CheckBox x:Name="chkDatvReporter" Content="DATV Reporter" VerticalAlignment="Center" />
+                                <Button Grid.Column="1" Content="Settings" Padding="8,2" Click="DatvSettings_Click" />
+                            </Grid>
+
+                            <Grid Margin="0,8,0,0">
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="*" />
+                                    <ColumnDefinition Width="Auto" />
+                                </Grid.ColumnDefinitions>
+                                <CheckBox x:Name="chkSdrSpectrum" Content="SDR Spectrum" VerticalAlignment="Center" />
+                                <Button Grid.Column="1" Content="Settings" Padding="8,2" Click="SdrSettings_Click" />
+                            </Grid>
+                        </StackPanel>
+                    </Border>
+
+                    <Border x:Name="propCard" Style="{StaticResource Card}" Margin="0,12,0,0"
+                            Visibility="Collapsed">
+                        <StackPanel>
+                            <TextBlock Text="PROPERTIES" Style="{StaticResource CardTitle}" />
+                            <ContentControl x:Name="propHost" Margin="0,10,0,0" />
+                        </StackPanel>
+                    </Border>
+
+                </StackPanel>
+            </ScrollViewer>
+
+            <GridSplitter x:Name="leftSplitter" Grid.Column="1" Width="4" HorizontalAlignment="Stretch"
+                          Background="{DynamicResource Border}" />
+
+            <!-- Right: video + bottom tools -->
+            <Grid x:Name="rightGrid" Grid.Column="2">
+                <Grid.RowDefinitions>
+                    <RowDefinition Height="*" />
+                    <RowDefinition x:Name="bottomSplitterRow" Height="4" />
+                    <RowDefinition x:Name="bottomRow" Height="260" MinHeight="140" />
+                </Grid.RowDefinitions>
+
+                <Border Grid.Row="0" Background="{DynamicResource VideoBackground}">
+                    <Grid>
+                        <Grid x:Name="videoArea" />
+                        <TextBlock x:Name="txtVideo" Text="No source connected"
+                                   Foreground="#7A828C" HorizontalAlignment="Center" VerticalAlignment="Center" />
+                    </Grid>
+                </Border>
+
+                <GridSplitter x:Name="bottomSplitter" Grid.Row="1" Height="4" HorizontalAlignment="Stretch"
+                              Background="{DynamicResource Border}" />
+
+                <TabControl Grid.Row="2" x:Name="tabsTools">
+                    <TabItem Header="BATC Spectrum">
+                        <ContentControl x:Name="batcHost" Background="{DynamicResource VideoBackground}"
+                                        HorizontalContentAlignment="Stretch" VerticalContentAlignment="Stretch" />
+                    </TabItem>
+                    <TabItem Header="SDR Spectrum">
+                        <Grid Background="{DynamicResource VideoBackground}">
+                            <Grid.RowDefinitions>
+                                <RowDefinition Height="Auto" />
+                                <RowDefinition Height="*" />
+                            </Grid.RowDefinitions>
+
+                            <StackPanel Orientation="Horizontal" Grid.Row="0" Margin="8,6">
+                                <TextBlock Text="RX" VerticalAlignment="Center" Margin="0,0,6,0"
+                                           Foreground="{DynamicResource TextSecondary}" />
+                                <ComboBox x:Name="comboSdrRx" Width="84" SelectionChanged="SdrRx_Changed" />
+                                <Button Content="Tune strongest" Margin="10,0,0,0" Click="SdrStrongest_Click" />
+                                <Button Content="SDR Settings..." Margin="6,0,0,0" Click="SdrSettings_Click" />
+                                <TextBlock x:Name="txtSdrStatus" VerticalAlignment="Center" Margin="12,0,0,0"
+                                           Foreground="{DynamicResource TextSecondary}" />
+                            </StackPanel>
+
+                            <ContentControl x:Name="sdrHost" Grid.Row="1"
+                                            HorizontalContentAlignment="Stretch" VerticalContentAlignment="Stretch" />
+                        </Grid>
+                    </TabItem>
+                    <TabItem Header="Debug">
+                        <ContentControl x:Name="debugHost" Background="{DynamicResource VideoBackground}"
+                                        HorizontalContentAlignment="Stretch" VerticalContentAlignment="Stretch" />
+                    </TabItem>
+                </TabControl>
+            </Grid>
+
+        </Grid>
+    </DockPanel>
+</Window>

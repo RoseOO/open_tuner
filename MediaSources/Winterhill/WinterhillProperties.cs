@@ -1,4 +1,4 @@
-﻿using opentuner.Utilities;
+using opentuner.Utilities;
 using System;
 using System.Collections.Generic;
 using System.Linq;
@@ -35,14 +35,13 @@ namespace opentuner.MediaSources.WinterHill
 
         private bool BuildSourceProperties()
         {
-            if (_parent == null)
-            {
-                Log.Information("Fatal Error: No Properties Panel");
-                return false;
-            }
+            bool headless = _parent == null;
 
-            _genericContextStrip = new ContextMenuStrip();
-            _genericContextStrip.Opening += _genericContextStrip_Opening;
+            if (!headless)
+            {
+                _genericContextStrip = new ContextMenuStrip();
+                _genericContextStrip.Opening += _genericContextStrip_Opening;
+            }
 
 
             for (int c = ts_devices-1; c >= 0; c--)
@@ -114,6 +113,12 @@ namespace opentuner.MediaSources.WinterHill
             // tuner for each device
             for (int c = 0; c < ts_devices; c++)
             {
+                if (headless)
+                {
+                    _tuner_forms.Add(null);
+                    continue;
+                }
+
                 var tunerControl = new TunerControlForm(c, 0, 0, (uint)_current_offset[c], this);
                 tunerControl.OnTunerChange += TunerControl_OnTunerChange;
 
@@ -183,7 +188,7 @@ namespace opentuner.MediaSources.WinterHill
                 case "ts_addr":
 
                     // get local ip's
-                    if (_LocalIp.Length == 0)
+                    if (string.IsNullOrEmpty(_LocalIp))
                     {
                         Log.Error("Warning: No Ip's detected");
                     }
@@ -277,7 +282,14 @@ namespace opentuner.MediaSources.WinterHill
 
                 case LongmyndPropertyCommands.SETFREQUENCY:
                     tuner = option[0];
-                    _tuner_forms[tuner].ShowTuner((uint)_current_frequency[tuner], (uint)_current_sr[tuner], (uint)_current_offset[tuner]);
+                    if (HasTunerControlSubscribers)
+                    {
+                        RaiseTunerControlRequested(tuner);
+                    }
+                    else if (_tuner_forms != null && tuner >= 0 && tuner < _tuner_forms.Count && _tuner_forms[tuner] != null)
+                    {
+                        _tuner_forms[tuner].ShowTuner((uint)_current_frequency[tuner], (uint)_current_sr[tuner], (uint)_current_offset[tuner]);
+                    }
                     break;
 
                 case LongmyndPropertyCommands.SETPRESET:
@@ -304,7 +316,7 @@ namespace opentuner.MediaSources.WinterHill
 
                 case LongmyndPropertyCommands.SETTSLOCAL:
 
-                    if (_LocalIp.Length > 0)
+                    if (!string.IsNullOrEmpty(_LocalIp))
                     {
                         Log.Information("Updating TS Ip to " + _LocalIp);
 
@@ -429,6 +441,128 @@ namespace opentuner.MediaSources.WinterHill
             }
         }
 
+        // ---- WPF property model ----
+        public override System.Collections.Generic.List<PropertyGroupDescriptor> GetPropertyGroups()
+        {
+            var list = new System.Collections.Generic.List<PropertyGroupDescriptor>();
+
+            if (_tuner_properties != null)
+                foreach (var g in _tuner_properties)
+                    if (g != null)
+                        list.Add(new PropertyGroupDescriptor { Id = g.getID(), Title = g.Title, Items = g.GetDescriptors() });
+
+            if (_source_properties != null)
+                list.Add(new PropertyGroupDescriptor { Id = _source_properties.getID(), Title = _source_properties.Title, Items = _source_properties.GetDescriptors() });
+
+            return list;
+        }
+
+        private DynamicPropertyGroup FindPropertyGroup(int id)
+        {
+            if (_tuner_properties != null)
+                foreach (var g in _tuner_properties)
+                    if (g != null && g.getID() == id)
+                        return g;
+
+            if (_source_properties != null && _source_properties.getID() == id)
+                return _source_properties;
+
+            return null;
+        }
+
+        public override string GetPropertyValue(int groupId, string key)
+        {
+            return FindPropertyGroup(groupId)?.GetValue(key) ?? "";
+        }
+
+        public override void SetPropertySlider(int groupId, string key, int value)
+        {
+            WinterHillSource_OnSlidersChanged(key, value);
+        }
+
+        public override void SetPropertyMediaButton(int groupId, string key, int function)
+        {
+            WinterHillSource_OnMediaButtonPressed(key, function);
+        }
+
+        public override System.Collections.Generic.List<PropertyMenuOption> GetPropertyMenu(int groupId, string key)
+        {
+            var list = new System.Collections.Generic.List<PropertyMenuOption>();
+            int tuner = groupId;   // tuner groups are setID(0..n-1)
+
+            switch (key)
+            {
+                case "frequency":
+                    list.Add(new PropertyMenuOption { Label = "Tuner Control", Command = (int)LongmyndPropertyCommands.SETFREQUENCY, Options = new[] { tuner } });
+                    if (_frequency_presets != null && _frequency_presets.Count > 0)
+                    {
+                        list.Add(new PropertyMenuOption { Separator = true });
+                        for (int c = 0; c < _frequency_presets.Count; c++)
+                            list.Add(new PropertyMenuOption { Label = _frequency_presets[c].Name + " (" + _frequency_presets[c].Frequency + ")", Command = (int)LongmyndPropertyCommands.SETPRESET, Options = new[] { tuner, c } });
+                    }
+                    break;
+
+                case "symbol_rate":
+                    foreach (uint rate in new uint[] { 2000, 1500, 1000, 500, 333, 250, 125, 66 })
+                        list.Add(new PropertyMenuOption { Label = rate.ToString(), Command = (int)LongmyndPropertyCommands.SETSYMBOLRATE, Options = new[] { tuner, (int)rate } });
+                    break;
+
+                case "rf_input":
+                    list.Add(new PropertyMenuOption { Label = "A", Command = (int)LongmyndPropertyCommands.SETRFINPUTA, Options = new[] { tuner } });
+                    list.Add(new PropertyMenuOption { Label = "B", Command = (int)LongmyndPropertyCommands.SETRFINPUTB, Options = new[] { tuner } });
+                    break;
+
+                case "offset":
+                    list.Add(new PropertyMenuOption { Label = "Default: " + _settings.DefaultOffset[tuner], Command = (int)LongmyndPropertyCommands.SETOFFSET, Options = new[] { tuner, 0 } });
+                    list.Add(new PropertyMenuOption { Label = "Zero", Command = (int)LongmyndPropertyCommands.SETOFFSET, Options = new[] { tuner, 1 } });
+                    break;
+
+                case "ts_addr":
+                    if (!string.IsNullOrEmpty(_LocalIp))
+                        list.Add(new PropertyMenuOption { Label = "Update TS to " + _LocalIp, Command = (int)LongmyndPropertyCommands.SETTSLOCAL, Options = new[] { tuner } });
+                    break;
+
+                case "hw_lnba":
+                    list.Add(new PropertyMenuOption { Label = "OFF", Command = (int)LongmyndPropertyCommands.LNBA_OFF, Options = new[] { 0, 0 } });
+                    list.Add(new PropertyMenuOption { Label = "Switch Vertical", Command = (int)LongmyndPropertyCommands.LNBA_VERTICAL, Options = new[] { 0, 0 } });
+                    list.Add(new PropertyMenuOption { Label = "Switch Horizontal", Command = (int)LongmyndPropertyCommands.LNBA_HORIZONTAL, Options = new[] { 0, 0 } });
+                    break;
+
+                case "hw_lnbb":
+                    list.Add(new PropertyMenuOption { Label = "OFF", Command = (int)LongmyndPropertyCommands.LNBB_OFF, Options = new[] { 0, 0 } });
+                    list.Add(new PropertyMenuOption { Label = "Switch Vertical", Command = (int)LongmyndPropertyCommands.LNBB_VERTICAL, Options = new[] { 0, 0 } });
+                    list.Add(new PropertyMenuOption { Label = "Switch Horizontal", Command = (int)LongmyndPropertyCommands.LNBB_HORIZONTAL, Options = new[] { 0, 0 } });
+                    break;
+            }
+
+            return list;
+        }
+
+        public override void InvokePropertyCommand(int groupId, string key, int command, int[] options)
+        {
+            try
+            {
+                properties_OnPropertyMenuSelect((LongmyndPropertyCommands)command, options ?? new int[0]);
+            }
+            catch (Exception ex)
+            {
+                Log.Error(ex, "WinterHill property command failed (" + command + ")");
+            }
+        }
+
+        public override int GetMediaButtonState(int groupId)
+        {
+            int tuner = groupId;
+            if (tuner < 0 || tuner >= 4)
+                return 0;
+
+            int s = 0;
+            if (muted != null && tuner < muted.Length && muted[tuner]) s |= 1;
+            if (_recorders != null && tuner < _recorders.Length && _recorders[tuner] != null && _recorders[tuner].record) s |= 2;
+            if (_streamer != null && tuner < _streamer.Length && _streamer[tuner] != null && _streamer[tuner].stream) s |= 4;
+            return s;
+        }
+
         private void WinterHillSource_OnMediaButtonPressed(string key, int function)
         {
             switch(key)
@@ -462,6 +596,7 @@ namespace opentuner.MediaSources.WinterHill
                     if (_media_player.Count() > 0 )
                         _media_player[0]?.SetVolume(value);
                     _settings.DefaultVolume[0] = (byte)value;
+                    _tuner_properties[0].UpdateValue("volume_slider_0", value.ToString());
                     _tuner_properties[0].UpdateMuteButtonColor("media_controls_0", Color.Transparent);
                     break;
                 case "volume_slider_1":
@@ -469,6 +604,7 @@ namespace opentuner.MediaSources.WinterHill
                     if (_media_player.Count() > 1)
                         _media_player[1]?.SetVolume(value);
                     _settings.DefaultVolume[1] = (byte)value;
+                    _tuner_properties[1].UpdateValue("volume_slider_1", value.ToString());
                     _tuner_properties[1].UpdateMuteButtonColor("media_controls_1", Color.Transparent);
                     break;
                 case "volume_slider_2":
@@ -476,6 +612,7 @@ namespace opentuner.MediaSources.WinterHill
                     if (_media_player.Count() > 2)
                         _media_player[2]?.SetVolume(value);
                     _settings.DefaultVolume[2] = (byte)value;
+                    _tuner_properties[2].UpdateValue("volume_slider_2", value.ToString());
                     _tuner_properties[2].UpdateMuteButtonColor("media_controls_2", Color.Transparent);
                     break;
                 case "volume_slider_3":
@@ -483,6 +620,7 @@ namespace opentuner.MediaSources.WinterHill
                     if (_media_player.Count() > 3)
                         _media_player[3]?.SetVolume(value);
                     _settings.DefaultVolume[3] = (byte)value;
+                    _tuner_properties[3].UpdateValue("volume_slider_3", value.ToString());
                     _tuner_properties[3].UpdateMuteButtonColor("media_controls_3", Color.Transparent);
                     break;
             }
@@ -777,3 +915,6 @@ namespace opentuner.MediaSources.WinterHill
         }
     }
 }
+
+
+

@@ -10,7 +10,7 @@ using WebSocketSharp;
 
 namespace opentuner
 {
-    class socket
+    public class socket
     {
         public Action<ushort[]> callback;
 

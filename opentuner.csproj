@@ -390,6 +390,7 @@
     </Compile>
     <Compile Include="Utilities\CommonFunctions.cs" />
     <Compile Include="Utilities\Theme.cs" />
+    <Compile Include="Utilities\PropertyDescriptors.cs" />
     <Compile Include="Utilities\DynamicPropertyGroups.cs" />
     <Compile Include="Utilities\DynamicPropertyInterface.cs" />
     <Compile Include="Utilities\DynamicPropertyItem.cs" />

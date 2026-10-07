@@ -63,6 +63,7 @@ namespace opentuner.MediaSources.WinterHill
         private DateTime _lastStatusUtc = DateTime.UtcNow;
         private bool _whOffline = false;
         private DateTime _lastWhRetry = DateTime.MinValue;
+        private DateTime _whStartUtc = DateTime.MinValue;
 
         public WinterHillSource()
         {
@@ -80,6 +81,13 @@ namespace opentuner.MediaSources.WinterHill
             int udp_port = _settings.WinterHillWSUdpBasePort;
 
             int defaultInterface = _settings.DefaultInterface;
+
+            // Headless (WPF) mode: skip the WinForms choose-interface dialog.
+            if (Parent == null && defaultInterface == 0)
+            {
+                defaultInterface = 2;   // PicoTuner Ethernet
+                Log.Warning("No default WinterHill interface set - defaulting to PicoTuner Ethernet (set it in source settings)");
+            }
 
             if (defaultInterface == 0)
             {
@@ -133,6 +141,7 @@ namespace opentuner.MediaSources.WinterHill
 
                     udp_port = _settings.WinterHillUdpBasePort;
                     ConnectWinterHillUDP(udp_port + 1);
+                    _whStartUtc = DateTime.UtcNow;
 
                     UDPSetVoltage(0, _settings.LNBVoltage[0]);
                     UDPSetVoltage(1, _settings.LNBVoltage[1]);
@@ -227,7 +236,12 @@ namespace opentuner.MediaSources.WinterHill
                     return;
 
                 // Only applies to the PicoTuner (WH) Ethernet interface.
-                if (hw_device != 2 || !_settings.AutoReconnect)
+                if (hw_device != 2 || (!_settings.AutoReconnect && !_settings.AutoFindUdp))
+                    continue;
+
+                // grace period after (re)starting so we don't declare "offline" before
+                // the first status packet has had a chance to arrive
+                if ((DateTime.UtcNow - _whStartUtc).TotalSeconds < 10 && _lastStatusUtc <= _whStartUtc)
                     continue;
 
                 bool online = (DateTime.UtcNow - _lastStatusUtc).TotalSeconds < 6;
@@ -246,12 +260,35 @@ namespace opentuner.MediaSources.WinterHill
                 if (!_whOffline)
                 {
                     _whOffline = true;
-                    Log.Warning("PicoTuner (WH) connection lost - will keep re-sending tuning settings");
+                    if (_settings.AutoReconnect)
+                        Log.Warning("PicoTuner (WH) connection lost - will keep looking and re-sending tuning settings");
+                    else
+                        Log.Warning("PicoTuner (WH) connection lost - will keep looking for the device");
+                }
+
+                // Auto-find: keep listening for the device broadcast and switch to
+                // the advertised IP / base port once found (repeat until connected).
+                if (_settings.AutoFindUdp)
+                {
+                    try
+                    {
+                        if (TryAutoFindWinterHill(out string foundIp, out int foundPort))
+                        {
+                            if (foundIp != _settings.WinterHillUdpHost || foundPort != _settings.WinterHillUdpBasePort)
+                            {
+                                Log.Information("PicoTuner (WH): auto-find updated address to " + foundIp + ":" + foundPort);
+                                _settings.WinterHillUdpHost = foundIp;
+                                _settings.WinterHillUdpBasePort = foundPort;
+                                _settingsManager.SaveSettings(_settings);
+                            }
+                        }
+                    }
+                    catch { }
                 }
 
                 // Periodically re-send tuning so the device recovers even if it
                 // rebooted and forgot its settings.
-                if ((DateTime.UtcNow - _lastWhRetry).TotalSeconds >= 5)
+                if (_settings.AutoReconnect && (DateTime.UtcNow - _lastWhRetry).TotalSeconds >= 5)
                 {
                     _lastWhRetry = DateTime.UtcNow;
                     ResendWinterHillSettings();
@@ -530,6 +567,11 @@ namespace opentuner.MediaSources.WinterHill
         {
             Log.Information("SetFrequency: " + device.ToString() + "," + frequency.ToString() + "," + symbol_rate.ToString() + "," + offset_included.ToString());
 
+            if (device >= 0 && device < _current_frequency.Length)
+            {
+                _current_frequency[device] = (int)frequency;
+                _current_sr[device] = (int)symbol_rate;
+            }
 
             if (offset_included)
             {
@@ -553,6 +595,13 @@ namespace opentuner.MediaSources.WinterHill
                 }
             }
 
+        }
+
+        public override object GetSettingsObject() => _settings;
+
+        public override void PersistSettings()
+        {
+            try { _settingsManager.SaveSettings(_settings); } catch { }
         }
 
         public override void ShowSettings()

@@ -1,4 +1,4 @@
-﻿using opentuner.Utilities;
+using opentuner.Utilities;
 using System;
 using System.Collections.Generic;
 using System.Linq;
@@ -51,14 +51,13 @@ namespace opentuner.MediaSources.Longmynd
 
         private bool BuildSourceProperties()
         {
-            if (_parent == null)
-            {
-                Log.Information("Fatal Error: No Properties Panel");
-                return false;
-            }
+            bool headless = _parent == null;
 
-            _genericContextStrip = new ContextMenuStrip();
-            _genericContextStrip.Opening += _genericContextStrip_Opening;
+            if (!headless)
+            {
+                _genericContextStrip = new ContextMenuStrip();
+                _genericContextStrip.Opening += _genericContextStrip_Opening;
+            }
 
 
             _tuner1_properties = ConfigureTunerProperties(1);
@@ -133,6 +132,79 @@ namespace opentuner.MediaSources.Longmynd
 //        {
 //            indicatorInput &= (byte)~(1 << (int)indicator);
 //        }
+
+        // ---- WPF property model ----
+        public override System.Collections.Generic.List<PropertyGroupDescriptor> GetPropertyGroups()
+        {
+            var list = new System.Collections.Generic.List<PropertyGroupDescriptor>();
+            if (_tuner1_properties != null)
+                list.Add(new PropertyGroupDescriptor { Id = _tuner1_properties.getID(), Title = _tuner1_properties.Title, Items = _tuner1_properties.GetDescriptors() });
+            if (_source_properties != null)
+                list.Add(new PropertyGroupDescriptor { Id = _source_properties.getID(), Title = _source_properties.Title, Items = _source_properties.GetDescriptors() });
+            return list;
+        }
+
+        private DynamicPropertyGroup FindPropertyGroup(int id)
+        {
+            if (_tuner1_properties != null && _tuner1_properties.getID() == id) return _tuner1_properties;
+            if (_source_properties != null && _source_properties.getID() == id) return _source_properties;
+            return null;
+        }
+
+        public override string GetPropertyValue(int groupId, string key)
+        {
+            return FindPropertyGroup(groupId)?.GetValue(key) ?? "";
+        }
+
+        public override void SetPropertySlider(int groupId, string key, int value)
+        {
+            DynamicPropertyGroup_OnSliderChanged(key, value);
+        }
+
+        public override void SetPropertyMediaButton(int groupId, string key, int function)
+        {
+            DynamicPropertyGroup_OnMediaButtonPressed(key, function);
+        }
+
+        public override System.Collections.Generic.List<PropertyMenuOption> GetPropertyMenu(int groupId, string key)
+        {
+            var list = new System.Collections.Generic.List<PropertyMenuOption>();
+
+            switch (key)
+            {
+                case "requested_freq":
+                    list.Add(new PropertyMenuOption { Label = "Change Frequency", Command = (int)LongmyndPropertyCommands.SETFREQUENCY });
+                    break;
+                case "source_ts_ip":
+                    if (!string.IsNullOrEmpty(_LocalIp))
+                        list.Add(new PropertyMenuOption { Label = "Update TS to " + _LocalIp, Command = (int)LongmyndPropertyCommands.SETTSLOCAL });
+                    break;
+            }
+
+            return list;
+        }
+
+        public override void InvokePropertyCommand(int groupId, string key, int command, int[] options)
+        {
+            try
+            {
+                int opt = (options != null && options.Length > 0) ? options[0] : 0;
+                properties_OnPropertyMenuSelect((LongmyndPropertyCommands)command, opt);
+            }
+            catch (Exception ex)
+            {
+                Log.Error(ex, "Longmynd property command failed (" + command + ")");
+            }
+        }
+
+        public override int GetMediaButtonState(int groupId)
+        {
+            int s = 0;
+            if (muted) s |= 1;
+            if (_recorder != null && _recorder.record) s |= 2;
+            if (_streamer != null && _streamer.stream) s |= 4;
+            return s;
+        }
 
         private void DynamicPropertyGroup_OnMediaButtonPressed(string key, int function)
         {
@@ -224,6 +296,7 @@ namespace opentuner.MediaSources.Longmynd
                     _settings.DefaultMuted = muted = false;
                     _media_player?.SetVolume(value);
                     _settings.DefaultVolume = (byte)value;
+                    _tuner1_properties.UpdateValue("volume_slider_1", value.ToString());
                     _tuner1_properties.UpdateMuteButtonColor("media_controls_1", Color.Transparent);
                     break;
             }
@@ -264,7 +337,7 @@ namespace opentuner.MediaSources.Longmynd
                     break;
                 case "source_ts_ip":
                     // get local ip's
-                    if (_LocalIp.Length == 0)
+                    if (string.IsNullOrEmpty(_LocalIp))
                     {
                         Log.Information("Warning: No Ip's detected");
                     }
@@ -316,12 +389,15 @@ namespace opentuner.MediaSources.Longmynd
             switch (command)
             {
                 case LongmyndPropertyCommands.SETFREQUENCY:
-                    MessageBox.Show("Change Frequency");
+                    if (HasTunerControlSubscribers)
+                        RaiseTunerControlRequested(0);
+                    else
+                        MessageBox.Show("Change Frequency");
                     break;
 
                 case LongmyndPropertyCommands.SETTSLOCAL:
 
-                    if (_LocalIp.Length > 0)
+                    if (!string.IsNullOrEmpty(_LocalIp))
                     {
                         Log.Information("Updating TS Ip to " + _LocalIp);
 
@@ -389,3 +465,6 @@ namespace opentuner.MediaSources.Longmynd
         }
     }
 }
+
+
+

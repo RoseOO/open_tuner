@@ -280,6 +280,13 @@ namespace opentuner.MediaSources.Longmynd
             demodState = -1;
         }
 
+        public override object GetSettingsObject() => _settings;
+
+        public override void PersistSettings()
+        {
+            try { _settingsManager.SaveSettings(_settings); } catch { }
+        }
+
         public override void ShowSettings()
         {
             LongmyndSettingsForm settingsForm = new LongmyndSettingsForm(ref _settings);

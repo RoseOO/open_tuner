@@ -30,6 +30,26 @@ namespace opentuner.Utilities
         private CustomGroupBox _groupBox;
         private List<DynamicPropertyInterface> _items = new List<DynamicPropertyInterface>();
 
+        // Headless mode: no WinForms controls are created (used by the WPF host).
+        private readonly bool _headless;
+        private readonly Dictionary<string, string> _values = new Dictionary<string, string>();
+
+        // UI-agnostic description of this group (used by the WPF property panel).
+        private string _title;
+        private readonly List<PropertyItemDescriptor> _descriptors = new List<PropertyItemDescriptor>();
+
+        public string Title => _title;
+
+        public List<PropertyItemDescriptor> GetDescriptors()
+        {
+            return new List<PropertyItemDescriptor>(_descriptors);
+        }
+
+        private void AddDescriptor(string key, string name, PropertyItemKind kind, int min = 0, int max = 0)
+        {
+            _descriptors.Add(new PropertyItemDescriptor { Key = key, Name = name, Kind = kind, Min = min, Max = max });
+        }
+
         public event SliderChanged OnSlidersChanged;
         public event ButtonPressedCallback OnMediaButtonPressed;
 
@@ -38,7 +58,8 @@ namespace opentuner.Utilities
         public void setID(int id)
         {
             _id = id;
-            _groupBox.Tag = id;
+            if (_groupBox != null)
+                _groupBox.Tag = id;
         }
 
         public int getID()
@@ -49,7 +70,11 @@ namespace opentuner.Utilities
         public DynamicPropertyGroup(string GroupTitle, Control Parent)
         {
             _parent = Parent;
+            _title = GroupTitle;
+            _headless = (Parent == null);
 
+            if (_headless)
+                return;
 
             // groupbox
             _groupBox = new CustomGroupBox();
@@ -129,27 +154,41 @@ namespace opentuner.Utilities
 
         public void UpdateBigLabel(string Text)
         {
+            if (_headless) return;
             //UpdateBigLabel(_big_num_label, Text);
             _groupBox.db_margin = Text;
         }
 
         public void UpdateTitle(string Title)
         {
+            if (_headless) return;
             UpdateTitle(_groupBox, Title);
+        }
+
+        private void RegisterHeadless(string Key)
+        {
+            if (!_values.ContainsKey(Key))
+                _values[Key] = "";
         }
 
         public void AddItem(string Key, string Name)
         {
+            AddDescriptor(Key, Name, PropertyItemKind.Value);
+            if (_headless) { RegisterHeadless(Key); return; }
             _items.Add(new DynamicPropertyItem(_groupBox, Key, Name));
         }
 
         public void AddItem(string Key, string Name, Color color)
         {
+            AddDescriptor(Key, Name, PropertyItemKind.Value);
+            if (_headless) { RegisterHeadless(Key); return; }
             _items.Add(new DynamicPropertyItem(_groupBox, Key, Name, color));
         }
 
         public void AddItem(string Key, string Name, ContextMenuStrip MenuStrip)
         {
+            AddDescriptor(Key, Name, PropertyItemKind.Value);
+            if (_headless) { RegisterHeadless(Key); return; }
             var item = new DynamicPropertyItem(_groupBox, Key, Name, Color.Bisque);
             item.ContextMenu = MenuStrip;
             _items.Add(item);
@@ -157,6 +196,8 @@ namespace opentuner.Utilities
 
         public void AddSlider(string Key, string Name, int min, int max)
         {
+            AddDescriptor(Key, Name, PropertyItemKind.Slider, min, max);
+            if (_headless) { RegisterHeadless(Key); return; }
             var item = new DynamicPropertySlider(_groupBox, Key, Name, min, max);
             item.OnSliderChanged += Item_OnSliderChanged;
             _items.Add(item);
@@ -169,6 +210,8 @@ namespace opentuner.Utilities
 
         public void AddMediaControls(string Key, string Name)
         {
+            AddDescriptor(Key, Name, PropertyItemKind.MediaControls);
+            if (_headless) { RegisterHeadless(Key); return; }
             var item = new DynamicPropertyMediaControls(_groupBox, Key, Name, ButtonPressedCallback);
             _items.Add(item);
         }
@@ -180,6 +223,7 @@ namespace opentuner.Utilities
 
         public void UpdateColor(string Key, Color Col)
         {
+            if (_headless) return;
             // this can probably be done more efficient, but will do for now
             for (int c = 0; c < _items.Count; c++)
             {
@@ -194,6 +238,12 @@ namespace opentuner.Utilities
 
         public void UpdateValue(string Key, string Value)
         {
+            if (_headless)
+            {
+                _values[Key] = Value ?? "";
+                return;
+            }
+
             // this can probably be done more efficient, but will do for now
             for (int c = 0; c < _items.Count; c++)
             {
@@ -207,6 +257,7 @@ namespace opentuner.Utilities
 
         public void UpdateMuteButtonColor(string Key, Color Col)
         {
+            if (_headless) return;
             // this can probably be done more efficient, but will do for now
             for (int c = 0; c < _items.Count; c++)
             {
@@ -220,6 +271,7 @@ namespace opentuner.Utilities
 
         public void UpdateRecordButtonColor(string Key, Color Col)
         {
+            if (_headless) return;
             // this can probably be done more efficient, but will do for now
             for (int c = 0; c < _items.Count; c++)
             {
@@ -233,6 +285,7 @@ namespace opentuner.Utilities
 
         public void UpdateStreamButtonColor(string Key, Color Col)
         {
+            if (_headless) return;
             // this can probably be done more efficient, but will do for now
             for (int c = 0; c < _items.Count; c++)
             {
@@ -246,6 +299,9 @@ namespace opentuner.Utilities
 
         public string GetValue(string key)
         {
+            if (_headless)
+                return _values.TryGetValue(key, out string v) ? v : "";
+
             foreach (var item in _items)
             {
                 if (item.Key == key)
@@ -255,6 +311,17 @@ namespace opentuner.Utilities
             }
             
             return ""; 
+        }
+
+        public Dictionary<string, string> GetAllValues()
+        {
+            if (_headless)
+                return new Dictionary<string, string>(_values);
+
+            var data = new Dictionary<string, string>();
+            foreach (var item in _items)
+                data[item.Key] = item.LastValue;
+            return data;
         }
 
         public Dictionary<string, string> GetAll()
