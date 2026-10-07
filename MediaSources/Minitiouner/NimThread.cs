@@ -30,6 +30,13 @@ namespace opentuner
         bool reset = false;
         bool no_lna = false;
 
+        private volatile bool _stop = false;
+
+        public void Stop()
+        {
+            _stop = true;
+        }
+
         //byte current_demod = stv0910.STV0910_DEMOD_BOTTOM;  
 
         public event EventHandler<StatusEvent> onNewStatus;
@@ -337,7 +344,7 @@ namespace opentuner
                 Log.Information("Init Nim");
                 err = _nim.nim_init();
 
-                while (true)
+                while (!_stop)
                 {
                     if (initialConfig == false)
                     {

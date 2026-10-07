@@ -15,6 +15,15 @@ namespace opentuner.MediaSources
         public delegate void SourceDataChange(int video_nr, OTSourceData properties, string description);
         public abstract event SourceDataChange OnSourceData;
 
+        // Raised when the LNB power supply / polarisation changes.
+        // 0 = off, 1 = vertical, 2 = horizontal.
+        public event Action<int> OnPolarizationChanged;
+
+        protected void NotifyPolarizationChanged(int supply)
+        {
+            OnPolarizationChanged?.Invoke(supply);
+        }
+
 
         // Request the Source Name (eg. Minitiouner)
         public abstract string GetName();

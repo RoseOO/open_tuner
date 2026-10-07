@@ -6,10 +6,13 @@ namespace opentuner.MediaSources.WinterHill
     public partial class WinterHillSettingsForm : Form
     {
         private WinterHillSettings _settings;
+        private PicoWHBroadcastListenerForm _broadcastListenerForm;
 
         public WinterHillSettingsForm(WinterHillSettings Settings)
         {
             InitializeComponent();
+
+            opentuner.Utilities.Theme.Apply(this);
 
             _settings = Settings;
 
@@ -20,6 +23,9 @@ namespace opentuner.MediaSources.WinterHill
 
             txtUDPBasePort.Text = _settings.WinterHillUdpBasePort.ToString();
             txtUDPIP.Text = _settings.WinterHillUdpHost.ToString();
+
+            checkAutoReconnect.Checked = _settings.AutoReconnect;
+            checkAutoFind.Checked = _settings.AutoFindUdp;
         }
 
         private void btnCancel_Click(object sender, EventArgs e)
@@ -60,7 +66,9 @@ namespace opentuner.MediaSources.WinterHill
             _settings.WinterHillUdpBasePort = udpbaseport;
             _settings.WinterHillUdpHost = txtUDPIP.Text;
             _settings.DefaultInterface = (byte)comboDefaultInterface.SelectedIndex;
-            
+            _settings.AutoReconnect = checkAutoReconnect.Checked;
+            _settings.AutoFindUdp = checkAutoFind.Checked;
+
             DialogResult = DialogResult.OK;
             Close();
         }
@@ -72,8 +80,16 @@ namespace opentuner.MediaSources.WinterHill
 
         private void btnBroadcastListener_Click(object sender, EventArgs e)
         {
-            PicoWHBroadcastListenerForm picoWHBroadcastListenerForm = new PicoWHBroadcastListenerForm();
-            picoWHBroadcastListenerForm.Show();
+            // Reuse a single window so repeated clicks don't try to bind the
+            // broadcast port a second time.
+            if (_broadcastListenerForm == null || _broadcastListenerForm.IsDisposed)
+            {
+                _broadcastListenerForm = new PicoWHBroadcastListenerForm();
+            }
+
+            _broadcastListenerForm.Show();
+            _broadcastListenerForm.BringToFront();
+            _broadcastListenerForm.Activate();
         }
     }
 }

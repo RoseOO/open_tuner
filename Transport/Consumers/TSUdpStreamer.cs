@@ -39,8 +39,9 @@ namespace opentuner
         string udp_address = "";
         int udp_port = 0;
 
-        private bool _running = false;
+        private volatile bool _running = false;
         private Thread _StreamThread = null;
+        private readonly ManualResetEventSlim _wake = new ManualResetEventSlim(false);
 
         public event EventHandler<bool> onStreamStatusChange;
 
@@ -58,14 +59,21 @@ namespace opentuner
 
             streaming = false;
 
-            _StreamThread = new Thread(worker_thread);
+            _StreamThread = new Thread(worker_thread)
+            {
+                IsBackground = true,
+                Name = "TSUdpStreamer" + Id.ToString()
+            };
             _StreamThread.Start();
         }
 
         public void Close()
         {
             _running = false;
-            _StreamThread?.Abort();
+            stream = false;
+            _wake.Set();
+            try { _StreamThread?.Join(2000); } catch { }
+            _StreamThread = null;
         }
 
         public void worker_thread()
@@ -152,7 +160,8 @@ namespace opentuner
                         }
                         else  // streaming but not enough data yet
                         {
-                            Thread.Sleep(100);
+                            _wake.Wait(50);
+                            _wake.Reset();
                         }
                     }
                     else
@@ -160,7 +169,8 @@ namespace opentuner
                         // throw away data
                         if (ts_data_queue.Count > 0)
                             ts_data_queue.Clear();
-                        Thread.Sleep(100);
+                        _wake.Wait(50);
+                        _wake.Reset();
                     }
                 }
             }

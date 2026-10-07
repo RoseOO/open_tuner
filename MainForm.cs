@@ -1,7 +1,9 @@
 ﻿using System;
 using System.Collections.Generic;
+using System.Drawing;
 using System.Globalization;
 using System.IO;
+using System.Linq;
 using System.Threading;
 using System.Windows.Forms;
 
@@ -22,6 +24,7 @@ using opentuner.ExtraFeatures.BATCWebchat;
 using opentuner.ExtraFeatures.MqttClient;
 using opentuner.ExtraFeatures.QuickTuneControl;
 using opentuner.ExtraFeatures.DATVReporter;
+using opentuner.ExtraFeatures.SdrSpectrum;
 
 using Serilog;
 using Serilog.Events;
@@ -43,9 +46,18 @@ namespace opentuner
         MqttManager mqtt_client;
         F5OEOPlutoControl pluto_client;
         BATCSpectrum batc_spectrum = null;
+        SdrSpectrum sdr_spectrum = null;
         BATCChat batc_chat;
         QuickTuneControl quickTune_control;
         DATVReporter datv_reporter = new DATVReporter();
+
+        // SDR spectrum UI (created in code so the layout stays consistent)
+        private CheckBox checkSdrSpectrum;
+        private Label linkSdrSettings;
+        private PictureBox sdrSpectrum;
+        private TabPage ExtraSdrTab;
+        private ToolTip _sdrTip;
+        private ComboBox comboSdrRx;
 
         private static List<OTMediaPlayer> _mediaPlayers;
         private static List<OTSource> _availableSources = new List<OTSource>();
@@ -292,6 +304,27 @@ namespace opentuner
 
             InitializeComponent();
 
+            CreateSdrUi();
+
+            // apply the modern theme to the whole window
+            Theme.Apply(this);
+            Theme.MakePrimary(btnSourceConnect);
+
+            // give the video area a clean, uniform dark backdrop with subtle splitters
+            Color videoBack = Color.FromArgb(28, 28, 30);
+            foreach (var sc in new[] { splitContainer3, splitContainer4, splitContainer5 })
+            {
+                if (sc == null)
+                    continue;
+
+                sc.BackColor = Color.FromArgb(80, 82, 86);
+                sc.Panel1.BackColor = videoBack;
+                sc.Panel2.BackColor = videoBack;
+                sc.SplitterWidth = 3;
+            }
+            splitContainer1.Panel2.BackColor = videoBack;
+            splitContainer2.Panel1.BackColor = videoBack;
+
             Application.AddMessageFilter(this);
 
             _settings = new MainSettings();
@@ -317,6 +350,7 @@ namespace opentuner
             checkMqttClient.Checked = _settings.enable_mqtt_checkbox;
             checkQuicktune.Checked = _settings.enable_quicktune_checkbox;
             checkDATVReporter.Checked = _settings.enable_datvreporter_checkbox;
+            checkSdrSpectrum.Checked = _settings.enable_sdr_spectrum_checkbox;
 
             // load available sources
             _availableSources.Add(new MinitiounerSource());
@@ -369,6 +403,15 @@ namespace opentuner
             // set recorders
             _ts_recorders = ConfigureTSRecorders(videoSource, _settings.media_video_path);
             videoSource.ConfigureTSRecorders(_ts_recorders);
+
+            // begin recording raw .ts as soon as the streams start, if requested
+            if (_settings.auto_record)
+            {
+                for (int c = 0; c < _ts_recorders.Count; c++)
+                {
+                    _ts_recorders[c].record = true;
+                }
+            }
 
             // set udp streamers
             _ts_streamers = ConfigureTSStreamers(videoSource, _settings.streamer_udp_hosts, _settings.streamer_udp_ports);
@@ -556,6 +599,9 @@ namespace opentuner
                 if (batc_spectrum != null)
                     batc_spectrum.Close();
 
+                if (sdr_spectrum != null)
+                    sdr_spectrum.Close();
+
                 if (batc_chat != null)
                     batc_chat.Close();
 
@@ -666,12 +712,78 @@ namespace opentuner
                 this.WindowState = (FormWindowState)_settings.gui_window_state;
             }
 
+            // tidy up the "Settings ..." / "More Info ..." links so they always fit
+            // inside their group box (never clipped or overlapping)
+            FixLeftPanelLinks();
+            splitContainer1.SplitterMoved += (s, ev) => FixLeftPanelLinks();
+
             // auto connect if specified
             if (_settings.auto_connect)
             {
                 source_connected = ConnectSelectedSource();
             }
             // hide/show video overlay
+        }
+
+        /// <summary>
+        /// The design-time coordinates of the left-hand "Settings ..." / "More Info ..."
+        /// links do not survive font/DPI scaling, which caused them to be clipped at
+        /// the group box edge. Re-lay them out at runtime, right-aligned so they always
+        /// fit (Settings to the left of More Info on the same row).
+        /// </summary>
+        private void FixLeftPanelLinks()
+        {
+            foreach (GroupBox gb in new[] { groupBox1, groupBox2, groupBox3 })
+            {
+                if (gb == null || gb.Parent == null)
+                    continue;
+
+                // let the group box use the full width of its container (tab page)
+                gb.Width = gb.Parent.ClientSize.Width - gb.Left - 8;
+
+                // make sure checkboxes are wide enough for their (possibly long)
+                // captions so they are never clipped by their own fixed width
+                foreach (var chk in gb.Controls.OfType<CheckBox>())
+                {
+                    chk.AutoSize = false;
+                    chk.Width = TextRenderer.MeasureText(chk.Text, chk.Font).Width + 36;
+                }
+
+                var linkLabels = gb.Controls.OfType<Label>()
+                    .Where(l => l.Text.Trim().StartsWith("Settings", StringComparison.OrdinalIgnoreCase)
+                             || l.Text.Trim().StartsWith("More Info", StringComparison.OrdinalIgnoreCase))
+                    .ToList();
+
+                // make the links a little smaller so they don't crowd the long labels
+                foreach (var link in linkLabels)
+                    link.Font = new Font(Theme.DefaultFont.FontFamily, 8.25F, FontStyle.Regular, GraphicsUnit.Point);
+
+                foreach (var row in linkLabels.GroupBy(l => l.Top))
+                {
+                    Label moreInfo = row.FirstOrDefault(l => l.Text.Trim().StartsWith("More Info", StringComparison.OrdinalIgnoreCase));
+                    Label settings = row.FirstOrDefault(l => l.Text.Trim().StartsWith("Settings", StringComparison.OrdinalIgnoreCase));
+
+                    int rightEdge = gb.ClientSize.Width - 14;
+
+                    if (moreInfo != null)
+                    {
+                        Size sz = TextRenderer.MeasureText(moreInfo.Text, moreInfo.Font);
+                        moreInfo.AutoSize = false;
+                        moreInfo.Width = sz.Width + 6;
+                        moreInfo.TextAlign = ContentAlignment.MiddleRight;
+                        moreInfo.Left = rightEdge - moreInfo.Width;
+                    }
+
+                    if (settings != null)
+                    {
+                        Size sz = TextRenderer.MeasureText(settings.Text, settings.Font);
+                        settings.AutoSize = false;
+                        settings.Width = sz.Width + 6;
+                        settings.TextAlign = ContentAlignment.MiddleRight;
+                        settings.Left = ((moreInfo != null) ? moreInfo.Left : rightEdge) - settings.Width - 10;
+                    }
+                }
+            }
         }
 
         private void Batc_spectrum_OnSignalSelected(int Receiver, uint Freq, uint SymbolRate)
@@ -692,6 +804,12 @@ namespace opentuner
             if (settings_form.ShowDialog() == DialogResult.OK)
             {
                 _settingsManager.SaveSettings(_settings);
+
+                // reflect a changed default source immediately
+                if (_settings.default_source >= 0 && _settings.default_source < comboAvailableSources.Items.Count)
+                {
+                    comboAvailableSources.SelectedIndex = _settings.default_source;
+                }
             }
         }
 
@@ -725,6 +843,13 @@ namespace opentuner
             video_info_display = new StreamInfoContainer(_settings.show_video_info[nr]);
             video_info_display.Tag = nr;
 
+            // The FFMPEG player depends on the Flyleaf/FFmpeg engine. If it failed to
+            // start (e.g. missing ffmpeg\ libraries) transparently fall back to VLC.
+            if (preference == 1 && !Program.FFmpegAvailable)
+            {
+                Log.Warning("FFMPEG player unavailable, falling back to VLC for video " + nr.ToString());
+                preference = 0;
+            }
 
             switch (preference)
             {
@@ -941,17 +1066,46 @@ namespace opentuner
 
             hidePanelToolStripMenuItem.Visible = true;
 
-            if (checkBatcSpectrum.Checked)
+            // the spectrum panel hosts both the BATC web spectrum and the SDR spectrum
+            // as separate tabs
+            if (checkBatcSpectrum.Checked || checkSdrSpectrum.Checked)
             {
                 hideExtraToolStripMenuItem.Visible = true;
-                // show spectrum
                 splitContainer2.Panel2Collapsed = false;
                 splitContainer2.Panel2.Enabled = true;
                 splitContainer2.Panel2.Show();
 
                 this.DoubleBuffered = true;
+            }
+
+            if (checkSdrSpectrum.Checked)
+            {
+                sdr_spectrum = new SdrSpectrum(sdrSpectrum, videoSource.GetVideoSourceCount());
+                sdr_spectrum.OnSignalSelected += Batc_spectrum_OnSignalSelected;
+                sdr_spectrum.OnRequestSettings += ShowSdrSettings;
+
+                // let the SDR centre frequency follow the tuner's LNB polarisation (WB/NB)
+                videoSource.OnPolarizationChanged += VideoSource_OnPolarizationChanged;
+
+                // populate the receiver selector (RX 1 .. RX n)
+                int rxCount = videoSource.GetVideoSourceCount();
+                comboSdrRx.Items.Clear();
+                for (int i = 0; i < rxCount; i++)
+                    comboSdrRx.Items.Add("RX " + (i + 1));
+                if (comboSdrRx.Items.Count > 0)
+                    comboSdrRx.SelectedIndex = 0;
+                sdr_spectrum.SetSelectedReceiver(Math.Max(0, comboSdrRx.SelectedIndex));
+
+                ExtraToolsTab.SelectedTab = ExtraSdrTab;
+            }
+
+            if (checkBatcSpectrum.Checked)
+            {
                 batc_spectrum = new BATCSpectrum(spectrum, videoSource.GetVideoSourceCount());
                 batc_spectrum.OnSignalSelected += Batc_spectrum_OnSignalSelected;
+
+                if (!checkSdrSpectrum.Checked)
+                    ExtraToolsTab.SelectedTab = ExtraSpectrumTab;
             }
 
             if (checkBatcChat.Checked)
@@ -1007,33 +1161,189 @@ namespace opentuner
 
         private void btnSourceSettings_Click(object sender, EventArgs e)
         {
-            _availableSources[comboAvailableSources.SelectedIndex].ShowSettings();
-            sourceInfo.Text = _availableSources[comboAvailableSources.SelectedIndex].GetDescription();
+            int index = comboAvailableSources.SelectedIndex;
+
+            if (index < 0 || index >= _availableSources.Count)
+                return;
+
+            // The source persists its own settings; re-save the main settings too so
+            // the selected source and everything else is remembered on relaunch.
+            _availableSources[index].ShowSettings();
+            sourceInfo.Text = _availableSources[index].GetDescription();
+            SaveMainSettings();
         }
 
         private void comboAvailableSources_SelectedIndexChanged(object sender, EventArgs e)
         {
-            sourceInfo.Text = _availableSources[comboAvailableSources.SelectedIndex].GetDescription();
+            int index = comboAvailableSources.SelectedIndex;
+
+            if (index < 0 || index >= _availableSources.Count)
+                return;
+
+            // remember the last selected source immediately, so the choice (and the
+            // settings screen that is shown for it) is restored on the next launch -
+            // even if the user never connected or the app is not closed cleanly.
+            _settings.default_source = index;
+            SaveMainSettings();
+
+            sourceInfo.Text = _availableSources[index].GetDescription();
+        }
+
+        private void SaveMainSettings()
+        {
+            try
+            {
+                if (_settings_save && _settingsManager != null && _settings != null)
+                    _settingsManager.SaveSettings(_settings);
+            }
+            catch (Exception ex)
+            {
+                Log.Error(ex, "Failed to save main settings");
+            }
+        }
+
+        /// <summary>
+        /// Builds the SDR spectrum tab and its controls on the Extra Features panel.
+        /// </summary>
+        private void CreateSdrUi()
+        {
+            ExtraSpectrumTab.Text = "BATC Spectrum";
+
+            ExtraSdrTab = new TabPage("SDR Spectrum");
+            ExtraSdrTab.BackColor = Color.Black;
+
+            sdrSpectrum = new PictureBox
+            {
+                Dock = DockStyle.Fill,
+                BackColor = Color.Black,
+                TabStop = false
+            };
+
+            ExtraSdrTab.Controls.Add(sdrSpectrum);
+
+            // a discoverable Settings button overlaid on the SDR panel
+            Button btnSdrSettings = new Button
+            {
+                Text = "SDR Settings",
+                Width = 110,
+                Height = 26,
+                Anchor = AnchorStyles.Top | AnchorStyles.Right,
+                Location = new Point(ExtraSdrTab.ClientSize.Width - 120, 6)
+            };
+            btnSdrSettings.Click += (s, e) => ShowSdrSettings();
+            ExtraSdrTab.Controls.Add(btnSdrSettings);
+            btnSdrSettings.BringToFront();
+
+            // receiver selector - which tuner the SDR click will tune
+            comboSdrRx = new ComboBox
+            {
+                DropDownStyle = ComboBoxStyle.DropDownList,
+                Width = 96
+            };
+            comboSdrRx.Location = new Point(8, 6);
+            comboSdrRx.SelectedIndexChanged += (s, e) => sdr_spectrum?.SetSelectedReceiver(comboSdrRx.SelectedIndex);
+            ExtraSdrTab.Controls.Add(comboSdrRx);
+            comboSdrRx.BringToFront();
+
+            Button btnStrongest = new Button
+            {
+                Text = "Tune strongest",
+                Width = 108,
+                Height = 24,
+                Location = new Point(110, 6)
+            };
+            btnStrongest.Click += (s, e) => sdr_spectrum?.TuneStrongest();
+            ExtraSdrTab.Controls.Add(btnStrongest);
+            btnStrongest.BringToFront();
+
+            ExtraToolsTab.Controls.Add(ExtraSdrTab);
+
+            checkSdrSpectrum = new CheckBox
+            {
+                Text = "SDR Spectrum",
+                AutoSize = true,
+                Location = new Point(checkDATVReporter.Left, checkDATVReporter.Bottom + 2)
+            };
+            checkSdrSpectrum.CheckedChanged += checkSdrSpectrum_CheckedChanged;
+            groupBox2.Controls.Add(checkSdrSpectrum);
+
+            _sdrTip = new ToolTip();
+            _sdrTip.SetToolTip(checkSdrSpectrum, "Local SDR spectrum via RTL-SDR, RTL-TCP or HackRF");
+
+            linkSdrSettings = new Label
+            {
+                Text = "Settings ...",
+                AutoSize = true,
+                Cursor = Cursors.Hand,
+                ForeColor = Color.RoyalBlue,
+                Location = new Point(checkSdrSpectrum.Right + 12, checkSdrSpectrum.Top)
+            };
+            linkSdrSettings.Click += (s, e) => ShowSdrSettings();
+            groupBox2.Controls.Add(linkSdrSettings);
+        }
+
+        private void checkSdrSpectrum_CheckedChanged(object sender, EventArgs e)
+        {
+            _settings.enable_sdr_spectrum_checkbox = checkSdrSpectrum.Checked;
+            SaveMainSettings();
+        }
+
+        private void VideoSource_OnPolarizationChanged(int supply)
+        {
+            sdr_spectrum?.ApplyPolarization(supply);
+        }
+
+        private void ShowSdrSettings()
+        {
+            SdrSettings settings;
+            SettingsManager<SdrSettings> manager = new SettingsManager<SdrSettings>("sdr_settings");
+
+            if (sdr_spectrum != null)
+            {
+                settings = sdr_spectrum.Settings;
+            }
+            else
+            {
+                settings = manager.LoadSettings(new SdrSettings());
+            }
+
+            SdrSettingsForm form = new SdrSettingsForm(settings);
+
+            if (form.ShowDialog() == DialogResult.OK)
+            {
+                if (sdr_spectrum != null)
+                {
+                    sdr_spectrum.ApplySettings();
+                }
+                else
+                {
+                    manager.SaveSettings(settings);
+                }
+            }
         }
 
         private void checkMqttClient_CheckedChanged(object sender, EventArgs e)
         {
             _settings.enable_mqtt_checkbox = checkMqttClient.Checked;
+            SaveMainSettings();
         }
 
         private void checkQuicktune_CheckedChanged(object sender, EventArgs e)
         {
             _settings.enable_quicktune_checkbox = checkQuicktune.Checked;
+            SaveMainSettings();
         }
 
         private void checkBatcSpectrum_CheckedChanged(object sender, EventArgs e)
         {
             _settings.enable_spectrum_checkbox = checkBatcSpectrum.Checked;
+            SaveMainSettings();
         }
 
         private void checkBatcChat_CheckedChanged(object sender, EventArgs e)
         {
             _settings.enable_chatform_checkbox = checkBatcChat.Checked;
+            SaveMainSettings();
         }
 
         private void linkBatcWebchatSettings_Click(object sender, EventArgs e)
@@ -1237,6 +1547,7 @@ namespace opentuner
         private void checkDATVReporter_CheckedChanged(object sender, EventArgs e)
         {
             _settings.enable_datvreporter_checkbox = checkDATVReporter.Checked;
+            SaveMainSettings();
         }
 
         private void LinkDatvReportMoreInfo_Click(object sender, EventArgs e)

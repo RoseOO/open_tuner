@@ -20,6 +20,10 @@ namespace opentuner.MediaSources.Minitiouner
 
         public byte DefaultRFInput = 0;     // 0 = both tuners fed through A, 1 = Tuner1 is A, Tuner2 is B
 
+        // Automatically detect a lost connection to a USB PicoTuner and reconnect,
+        // re-applying the current tuning settings once the device is back.
+        public bool AutoReconnect = true;
+
         public uint[] DefaultVolume = new uint[] { 50, 50 };
         public bool[] DefaultMuted = new bool[] { true, true };
     }

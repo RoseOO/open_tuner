@@ -57,6 +57,13 @@ namespace opentuner.MediaSources.WinterHill
 
         int hw_device = 1;
 
+        // connection watchdog / auto reconnect (PicoTuner WH over Ethernet)
+        private volatile bool _shutdownWatchdog = false;
+        private Thread reconnect_thread_t = null;
+        private DateTime _lastStatusUtc = DateTime.UtcNow;
+        private bool _whOffline = false;
+        private DateTime _lastWhRetry = DateTime.MinValue;
+
         public WinterHillSource()
         {
             // settings
@@ -102,6 +109,28 @@ namespace opentuner.MediaSources.WinterHill
 
                     break;
                 case 2: // udp pico wh
+                    // Optionally discover the device's IP address and base port from
+                    // its status broadcast before connecting.
+                    if (_settings.AutoFindUdp)
+                    {
+                        Cursor previousCursor = Cursor.Current;
+                        Cursor.Current = Cursors.WaitCursor;
+
+                        try
+                        {
+                            if (TryAutoFindWinterHill(out string foundIp, out int foundBasePort))
+                            {
+                                _settings.WinterHillUdpHost = foundIp;
+                                _settings.WinterHillUdpBasePort = foundBasePort;
+                                _settingsManager.SaveSettings(_settings);
+                            }
+                        }
+                        finally
+                        {
+                            Cursor.Current = previousCursor;
+                        }
+                    }
+
                     udp_port = _settings.WinterHillUdpBasePort;
                     ConnectWinterHillUDP(udp_port + 1);
 
@@ -151,7 +180,7 @@ namespace opentuner.MediaSources.WinterHill
 
 
                 ts_threads[c] = new TSThread(ts_data_queue[c], flush_ts, read_ts, "WH TS" + c.ToString());
-                ts_thread_t[c] = new Thread(ts_threads[c].worker_thread);
+                ts_thread_t[c] = new Thread(ts_threads[c].worker_thread) { IsBackground = true, Name = "WH TS" + c.ToString() };
                 ts_thread_t[c].Start();
 
             }
@@ -175,7 +204,79 @@ namespace opentuner.MediaSources.WinterHill
                 Log.Warning("Multiple IP's detected, using " + _LocalIp);
             }
 
+            // Watch the status feed and transparently re-send tuning settings if the
+            // PicoTuner (WH) over Ethernet goes away (e.g. power cycle / network drop).
+            _shutdownWatchdog = false;
+            reconnect_thread_t = new Thread(reconnect_watchdog)
+            {
+                IsBackground = true,
+                Name = "WinterHillReconnect"
+            };
+            reconnect_thread_t.Start();
+
             return ts_devices;
+        }
+
+        private void reconnect_watchdog()
+        {
+            while (!_shutdownWatchdog)
+            {
+                Thread.Sleep(1000);
+
+                if (_shutdownWatchdog)
+                    return;
+
+                // Only applies to the PicoTuner (WH) Ethernet interface.
+                if (hw_device != 2 || !_settings.AutoReconnect)
+                    continue;
+
+                bool online = (DateTime.UtcNow - _lastStatusUtc).TotalSeconds < 6;
+
+                if (online)
+                {
+                    if (_whOffline)
+                    {
+                        _whOffline = false;
+                        Log.Information("PicoTuner (WH) connection restored - restoring tuning settings");
+                        ResendWinterHillSettings();
+                    }
+                    continue;
+                }
+
+                if (!_whOffline)
+                {
+                    _whOffline = true;
+                    Log.Warning("PicoTuner (WH) connection lost - will keep re-sending tuning settings");
+                }
+
+                // Periodically re-send tuning so the device recovers even if it
+                // rebooted and forgot its settings.
+                if ((DateTime.UtcNow - _lastWhRetry).TotalSeconds >= 5)
+                {
+                    _lastWhRetry = DateTime.UtcNow;
+                    ResendWinterHillSettings();
+                }
+            }
+        }
+
+        private void ResendWinterHillSettings()
+        {
+            try
+            {
+                UDPSetVoltage(0, _settings.LNBVoltage[0]);
+                UDPSetVoltage(1, _settings.LNBVoltage[1]);
+
+                for (int c = 0; c < ts_devices; c++)
+                {
+                    UDPSetFrequency(c, _current_frequency[c], _current_sr[c]);
+                }
+
+                Log.Information("PicoTuner (WH): re-sent tuning settings");
+            }
+            catch (Exception ex)
+            {
+                Log.Error(ex, "Failed to re-send WinterHill tuning settings");
+            }
         }
 
         public void FlushTS0()
@@ -259,6 +360,9 @@ namespace opentuner.MediaSources.WinterHill
         {
             Log.Information("Closing WinterHill Source");
 
+            _shutdownWatchdog = true;
+            try { reconnect_thread_t?.Join(1500); } catch { }
+
             int defaultInterface = _settings.DefaultInterface;
             _settingsManager.SaveSettings(_settings);
 
@@ -271,11 +375,15 @@ namespace opentuner.MediaSources.WinterHill
                     DisconnectWinterHillUDP();
                     break;
             }
-            if (ts_thread_t != null) 
+            if (ts_threads != null)
             {
-                for (int c = 0; c < ts_thread_t.Length; c++)
+                for (int c = 0; c < ts_threads.Length; c++)
                 {
-                    ts_thread_t[c]?.Abort();
+                    if (ts_threads[c] != null)
+                    {
+                        bool stopped = false;
+                        ts_threads[c].Stop(ref stopped);
+                    }
                 }
             }
 

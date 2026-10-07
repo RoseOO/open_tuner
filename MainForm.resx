@@ -943,7 +943,7 @@
     <value>1</value>
   </data>
   <data name="checkBatcChat.Text" xml:space="preserve">
-    <value>BATC Wideband Web Chat  (QO-100)</value>
+    <value>BATC Chat (QO-100)</value>
   </data>
   <data name="&gt;&gt;checkBatcChat.Name" xml:space="preserve">
     <value>checkBatcChat</value>
@@ -970,7 +970,7 @@
     <value>0</value>
   </data>
   <data name="checkBatcSpectrum.Text" xml:space="preserve">
-    <value>BATC Wideband Spectrum (QO-100) </value>
+    <value>BATC Spectrum (QO-100)</value>
   </data>
   <data name="&gt;&gt;checkBatcSpectrum.Name" xml:space="preserve">
     <value>checkBatcSpectrum</value>

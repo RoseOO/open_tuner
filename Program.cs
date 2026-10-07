@@ -3,6 +3,8 @@ using System;
 using System.IO;
 using System.Linq;
 using System.Runtime.InteropServices;
+using System.Threading;
+using System.Threading.Tasks;
 using System.Windows.Forms;
 using Serilog;
 using Serilog.Core;
@@ -16,6 +18,13 @@ namespace opentuner
         /// The main entry point for the application.
         /// </summary>
         public static LoggingLevelSwitch levelSwitch;
+
+        /// <summary>
+        /// True when the Flyleaf/FFmpeg engine started successfully. When false the
+        /// FFMPEG media player is unavailable and callers should fall back to another
+        /// player instead of throwing.
+        /// </summary>
+        public static bool FFmpegAvailable = false;
 
         [DllImport("user32.dll")]
         private static extern bool ShowWindow([In] IntPtr hWnd, [In] int nCmdShow);
@@ -139,6 +148,21 @@ namespace opentuner
                 }
             }
 
+            // Catch as much as possible so a single fault in a background thread or an
+            // event handler does not tear the whole application down.
+            Application.SetUnhandledExceptionMode(UnhandledExceptionMode.CatchException);
+            Application.ThreadException += (sender, e) => HandleUnhandledException(e.Exception, "UI thread");
+            AppDomain.CurrentDomain.UnhandledException += (sender, e) =>
+                HandleUnhandledException(e.ExceptionObject as Exception, "background thread");
+            TaskScheduler.UnobservedTaskException += (sender, e) =>
+            {
+                Log.Error(e.Exception, "Unobserved task exception");
+                e.SetObserved();
+            };
+
+            // The Flyleaf/FFmpeg engine is only needed by the FFMPEG media player.
+            // If the ffmpeg\ folder is missing we must not abort the whole program:
+            // log it and let the user fall back to VLC/MPV.
             try
             {
                 Engine.Start(new EngineConfig()
@@ -147,7 +171,6 @@ namespace opentuner
                     FFmpegDevices = false,    // Prevents loading avdevice/avfilter dll files. Enable it only if you plan to use dshow/gdigrab etc.
                                               //LogLevel = LogLevel.Debug,
                                               //LogOutput = ":console",
-                                              //LogOutput = @"C:\temp2\ffmpeg.log",
 
                     /*
                     UIRefresh = true,    // Required for Activity, BufferedDuration, Stats in combination with Config.Player.Stats = true
@@ -156,6 +179,16 @@ namespace opentuner
                     */
                 });
 
+                FFmpegAvailable = true;
+            }
+            catch (Exception ex)
+            {
+                Log.Error(ex, "FFmpeg engine failed to start (ffmpeg\\ dependencies missing?). " +
+                              "The FFMPEG media player will be unavailable; use VLC or MPV instead.");
+            }
+
+            try
+            {
                 Application.EnableVisualStyles();
                 Application.SetCompatibleTextRenderingDefault(false);
                 Application.Run(new MainForm(args));
@@ -167,6 +200,27 @@ namespace opentuner
             finally
             {
                 Log.CloseAndFlush();
+            }
+        }
+
+        private static void HandleUnhandledException(Exception ex, string origin)
+        {
+            Log.Error(ex, "Unhandled exception ({Origin})", origin);
+
+            try
+            {
+                MessageBox.Show(
+                    "Open Tuner encountered an unexpected problem and will try to continue.\n\n" +
+                    (origin == "UI thread" ? "" : "Origin: " + origin + "\n\n") +
+                    (ex != null ? ex.Message : "Unknown error") +
+                    "\n\nDetails have been written to the log file in the logs folder.",
+                    "Open Tuner",
+                    MessageBoxButtons.OK,
+                    MessageBoxIcon.Warning);
+            }
+            catch
+            {
+                // Never let the error handler itself crash the application.
             }
         }
     }

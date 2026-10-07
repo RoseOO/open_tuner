@@ -71,6 +71,7 @@
             this.label3 = new System.Windows.Forms.Label();
             this.groupBox2 = new System.Windows.Forms.GroupBox();
             this.checkBoxMuted = new System.Windows.Forms.CheckBox();
+            this.checkBoxAutoRecord = new System.Windows.Forms.CheckBox();
             this.groupBox3.SuspendLayout();
             this.groupBox5.SuspendLayout();
             this.groupBox1.SuspendLayout();
@@ -551,6 +552,7 @@
             // 
             // groupBox2
             // 
+            this.groupBox2.Controls.Add(this.checkBoxAutoRecord);
             this.groupBox2.Controls.Add(this.checkBoxMuted);
             this.groupBox2.Location = new System.Drawing.Point(491, 15);
             this.groupBox2.Name = "groupBox2";
@@ -567,6 +569,16 @@
             this.checkBoxMuted.TabIndex = 0;
             this.checkBoxMuted.Text = "Mute at Startup";
             this.checkBoxMuted.UseVisualStyleBackColor = true;
+            // 
+            // checkBoxAutoRecord
+            // 
+            this.checkBoxAutoRecord.AutoSize = true;
+            this.checkBoxAutoRecord.Location = new System.Drawing.Point(174, 36);
+            this.checkBoxAutoRecord.Name = "checkBoxAutoRecord";
+            this.checkBoxAutoRecord.Size = new System.Drawing.Size(230, 20);
+            this.checkBoxAutoRecord.TabIndex = 1;
+            this.checkBoxAutoRecord.Text = "Auto-record streams to raw .ts";
+            this.checkBoxAutoRecord.UseVisualStyleBackColor = true;
             // 
             // settingsForm
             // 
@@ -643,6 +655,7 @@
         private System.Windows.Forms.Label label5;
         private System.Windows.Forms.GroupBox groupBox2;
         public System.Windows.Forms.CheckBox checkBoxMuted;
+        public System.Windows.Forms.CheckBox checkBoxAutoRecord;
         private System.Windows.Forms.Button btnBrowseFolder1;
         private System.Windows.Forms.TextBox txtVideoPath;
         private System.Windows.Forms.Label label9;

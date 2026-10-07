@@ -17,6 +17,7 @@ namespace opentuner.MediaSources.Longmynd
         public LongmyndSettingsForm(ref LongmyndSettings Settings)
         {
             InitializeComponent();
+            opentuner.Utilities.Theme.Apply(this);
             _settings = Settings;
 
             comboHardwareInterface.SelectedIndex = _settings.DefaultInterface;

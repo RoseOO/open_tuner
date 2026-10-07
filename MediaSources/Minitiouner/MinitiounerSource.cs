@@ -36,9 +36,16 @@ namespace opentuner.MediaSources.Minitiouner
 
         // threads
         Thread nim_thread_t = null;
+        NimThread nim_thread = null;
 
         Thread ts_thread_t = null;
         Thread ts_thread_2_t = null;
+
+        // connection watchdog / auto reconnect
+        Thread reconnect_thread_t = null;
+        TSParserThread ts_parser_thread = null;
+        TSParserThread ts_parser_thread2 = null;
+        private volatile bool _shutdown = false;
 
         bool T1P2_prevLocked = false;
         bool T2P1_prevLocked = false;
@@ -445,7 +452,7 @@ namespace opentuner.MediaSources.Minitiouner
             hardware_interface.hw_ts_led(1, false);
 
             // configure nim thread
-            NimThread nim_thread = new NimThread(config_queue, hardware_interface, nim_status_feedback, false);
+            nim_thread = new NimThread(config_queue, hardware_interface, nim_status_feedback, false);
             nim_thread_t = new Thread(nim_thread.worker_thread);
 
 
@@ -535,35 +542,132 @@ namespace opentuner.MediaSources.Minitiouner
                 change_frequency(1, current_frequency_1, current_sr_1, current_rf_input_1, current_tone_22kHz_P1, current_lnba_psu, current_lnbb_psu);
             }
 
+            nim_thread_t.IsBackground = true;
+            nim_thread_t.Name = "MinitiounerNimThread";
             nim_thread_t.Start();
 
             // TS thread - T1P2
             ts_thread = new TSThread(ts_data_queue, FlushTS2, ReadTS2, "MT TS2");
-            ts_thread_t = new Thread(ts_thread.worker_thread);
+            ts_thread_t = new Thread(ts_thread.worker_thread) { IsBackground = true, Name = "MT TS2" };
             ts_thread_t.Start();
 
             if (ts_devices == 2)
             {
                 ts_thread2 = new TSThread(ts_data_queue2, FlushTS1, ReadTS1, "MT TS1");
-                ts_thread_2_t = new Thread(ts_thread2.worker_thread);
+                ts_thread_2_t = new Thread(ts_thread2.worker_thread) { IsBackground = true, Name = "MT TS1" };
                 ts_thread_2_t.Start();
             }
 
             // start TS Parser 
-            TSParserThread ts_parser_thread = new TSParserThread(parse_ts_data_callback);
+            ts_parser_thread = new TSParserThread(parse_ts_data_callback);
             RegisterTSConsumer(0, ts_parser_thread.parser_ts_data_queue);
-            ts_parser_t = new Thread(ts_parser_thread.worker_thread);
+            ts_parser_t = new Thread(ts_parser_thread.worker_thread) { IsBackground = true, Name = "MT TSParser" };
             ts_parser_t.Start();
 
             if (ts_devices == 2)
             {
-                TSParserThread ts_parser_thread2 = new TSParserThread(parse_ts2_data_callback);
+                ts_parser_thread2 = new TSParserThread(parse_ts2_data_callback);
                 RegisterTSConsumer(1, ts_parser_thread2.parser_ts_data_queue);
-                ts_parser_2_t = new Thread(ts_parser_thread2.worker_thread);
+                ts_parser_2_t = new Thread(ts_parser_thread2.worker_thread) { IsBackground = true, Name = "MT TSParser2" };
                 ts_parser_2_t.Start();
             }
 
+            // Monitor the USB connection and transparently reconnect if the device
+            // is unplugged / reset, re-applying the current tuning settings.
+            _shutdown = false;
+            reconnect_thread_t = new Thread(reconnect_watchdog)
+            {
+                IsBackground = true,
+                Name = "MinitiounerReconnect"
+            };
+            reconnect_thread_t.Start();
+
             return ts_devices;
+        }
+
+        private void reconnect_watchdog()
+        {
+            const int lost_threshold_seconds = 6;
+            const int reconnect_retry_ms = 2000;
+
+            while (!_shutdown)
+            {
+                Thread.Sleep(1000);
+
+                if (_shutdown)
+                    return;
+
+                // Only the USB PicoTuner interface reports I/O heartbeats.
+                if (!(_settings.AutoReconnect && hardware_interface is PicoTunerInterface))
+                    continue;
+
+                bool disconnected = !hardware_connected ||
+                    (DateTime.UtcNow - hardware_interface.LastSuccessfulIo).TotalSeconds > lost_threshold_seconds;
+
+                if (!disconnected)
+                    continue;
+
+                if (hardware_connected)
+                {
+                    Log.Warning("PicoTuner connection lost - attempting to reconnect");
+                }
+
+                hardware_connected = false;
+                hardware_interface.MarkDisconnected();
+
+                // release the (now dead) USB handles before retrying
+                try { hardware_interface.hw_close(); } catch { }
+
+                bool reconnected = false;
+
+                while (!_shutdown && !reconnected)
+                {
+                    try
+                    {
+                        hardware_init(false, "", "", "");
+
+                        if (hardware_connected)
+                            reconnected = true;
+                    }
+                    catch (Exception ex)
+                    {
+                        Log.Error(ex, "PicoTuner reconnect attempt failed");
+                    }
+
+                    if (!reconnected)
+                        Thread.Sleep(reconnect_retry_ms);
+                }
+
+                if (_shutdown)
+                    return;
+
+                Log.Information("PicoTuner reconnected - restoring tuning settings");
+
+                // The NIM worker may have exited after too many hardware errors.
+                if (nim_thread_t == null || !nim_thread_t.IsAlive)
+                {
+                    nim_thread = new NimThread(config_queue, hardware_interface, nim_status_feedback, false);
+                    nim_thread_t = new Thread(nim_thread.worker_thread)
+                    {
+                        IsBackground = true,
+                        Name = "MinitiounerNimThread"
+                    };
+                    nim_thread_t.Start();
+                }
+
+                // Re-apply the last known tuning settings for every tuner.
+                try
+                {
+                    change_frequency(0, current_frequency_0, current_sr_0, current_rf_input_0, current_tone_22kHz_P1, current_lnba_psu, current_lnbb_psu);
+
+                    if (ts_devices == 2)
+                        change_frequency(1, current_frequency_1, current_sr_1, current_rf_input_1, current_tone_22kHz_P1, current_lnba_psu, current_lnbb_psu);
+                }
+                catch (Exception ex)
+                {
+                    Log.Error(ex, "Failed to restore tuning settings after reconnect");
+                }
+            }
         }
 
         public void parse_ts_data_callback(TSStatus ts_status)
@@ -769,15 +873,24 @@ namespace opentuner.MediaSources.Minitiouner
         {
             _settingsManager.SaveSettings(_settings);
 
-            // switch off TS led's
-            hardware_interface?.hw_ts_led(0, false);
-            hardware_interface?.hw_ts_led(1, false);
+            // stop the connection watchdog first so it cannot start a reconnect
+            // while we are tearing everything down
+            _shutdown = true;
+            try { reconnect_thread_t?.Join(1500); } catch { }
 
-            ts_parser_t?.Abort();
-            ts_parser_2_t?.Abort();
-            ts_thread_t?.Abort();
-            ts_thread_2_t?.Abort();
-            nim_thread_t?.Abort();
+            // switch off TS led's (best effort - device may already be gone)
+            try { hardware_interface?.hw_ts_led(0, false); } catch { }
+            try { hardware_interface?.hw_ts_led(1, false); } catch { }
+
+            // cooperative shutdown of the worker threads (no Thread.Abort)
+            nim_thread?.Stop();
+            ts_parser_thread?.Stop();
+            ts_parser_thread2?.Stop();
+
+            if (ts_thread != null) { bool stopped = false; ts_thread.Stop(ref stopped); }
+            if (ts_thread2 != null) { bool stopped = false; ts_thread2.Stop(ref stopped); }
+
+            try { hardware_interface?.hw_close(); } catch { }
         }
 
         public override void ShowSettings()

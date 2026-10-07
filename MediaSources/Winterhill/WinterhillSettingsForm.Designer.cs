@@ -46,6 +46,8 @@
             this.txtWHWSBaseUdp = new System.Windows.Forms.TextBox();
             this.label6 = new System.Windows.Forms.Label();
             this.txtUDPBasePort = new System.Windows.Forms.TextBox();
+            this.checkAutoReconnect = new System.Windows.Forms.CheckBox();
+            this.checkAutoFind = new System.Windows.Forms.CheckBox();
             this.groupBox1.SuspendLayout();
             this.groupBox2.SuspendLayout();
             this.groupBox3.SuspendLayout();
@@ -173,6 +175,8 @@
             // 
             // groupBox3
             // 
+            this.groupBox3.Controls.Add(this.checkAutoFind);
+            this.groupBox3.Controls.Add(this.checkAutoReconnect);
             this.groupBox3.Controls.Add(this.label6);
             this.groupBox3.Controls.Add(this.txtUDPIP);
             this.groupBox3.Controls.Add(this.txtUDPBasePort);
@@ -236,6 +240,26 @@
             this.txtUDPBasePort.Size = new System.Drawing.Size(113, 22);
             this.txtUDPBasePort.TabIndex = 14;
             // 
+            // checkAutoReconnect
+            // 
+            this.checkAutoReconnect.AutoSize = true;
+            this.checkAutoReconnect.Location = new System.Drawing.Point(191, 98);
+            this.checkAutoReconnect.Name = "checkAutoReconnect";
+            this.checkAutoReconnect.Size = new System.Drawing.Size(180, 20);
+            this.checkAutoReconnect.TabIndex = 16;
+            this.checkAutoReconnect.Text = "Auto reconnect and restore tuning";
+            this.checkAutoReconnect.UseVisualStyleBackColor = true;
+            // 
+            // checkAutoFind
+            // 
+            this.checkAutoFind.AutoSize = true;
+            this.checkAutoFind.Location = new System.Drawing.Point(24, 98);
+            this.checkAutoFind.Name = "checkAutoFind";
+            this.checkAutoFind.Size = new System.Drawing.Size(140, 20);
+            this.checkAutoFind.TabIndex = 17;
+            this.checkAutoFind.Text = "Auto-find on connect";
+            this.checkAutoFind.UseVisualStyleBackColor = true;
+            // 
             // WinterHillSettingsForm
             // 
             this.AutoScaleDimensions = new System.Drawing.SizeF(8F, 16F);
@@ -286,5 +310,7 @@
         private System.Windows.Forms.TextBox txtWHWSBaseUdp;
         private System.Windows.Forms.Label label6;
         private System.Windows.Forms.TextBox txtUDPBasePort;
+        private System.Windows.Forms.CheckBox checkAutoReconnect;
+        private System.Windows.Forms.CheckBox checkAutoFind;
     }
 }

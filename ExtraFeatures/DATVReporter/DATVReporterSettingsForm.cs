@@ -16,6 +16,7 @@ namespace opentuner.ExtraFeatures.DATVReporter
         public DATVReporterSettingsForm()
         {
             InitializeComponent();
+            opentuner.Utilities.Theme.Apply(this);
         }
 
         private void btnSave_Click(object sender, EventArgs e)

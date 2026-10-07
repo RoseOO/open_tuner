@@ -138,6 +138,7 @@ namespace opentuner
                 else
                 {
                     Log.Information("EndPointError: " + error.ToString());
+                    MarkIoFailure();
                     return 1;
                 }
 
@@ -153,11 +154,13 @@ namespace opentuner
             if (QueueTimeoutFlag == true)
             {
                 Log.Information("Queue Timout Error");
+                MarkIoFailure();
                 return 1;
             }
             else
             {
                 //Log.Information("Read: " + (NumBytesRead - 2).ToString());
+                MarkIoSuccess();
                 return 0;
             }
         }
@@ -180,10 +183,14 @@ namespace opentuner
                 Log.Information("Error: " + error.ToString());
                 Log.Information("Send: " + NumBytesToSend.ToString());
                 Log.Information("Sent: " + NumBytesSent.ToString());
+                MarkIoFailure();
                 return 1;   // error   calling function can check NumBytesSent to see how many got sent
             }
             else
+            {
+                MarkIoSuccess();
                 return 0;   // success
+            }
         }
 
         private byte FlushBuffer(FTD2XX_NET.FTDI ftdi)
@@ -732,18 +739,33 @@ namespace opentuner
             if (err == 0) err = ftdi_set_ftdi_io(null);
             if (err == 0) err = ftdi_nim_reset();
 
+            if (err == 0)
+                MarkConnected();
+
             return err;
         }
 
         public override void hw_close()
         {
-            ts1EndPointReader?.Dispose();
-            ts2EndPointReader?.Dispose();
-            i2c_pt_device?.Close();
-            ts_pt_device?.Close();
+            MarkDisconnected();
+
+            try { ts1EndPointReader?.Dispose(); } catch { }
+            try { ts2EndPointReader?.Dispose(); } catch { }
+            try { i2cEndPointReader?.Dispose(); } catch { }
+            try { i2cEndPointWriter?.Dispose(); } catch { }
+            try { i2c_pt_device?.Close(); } catch { }
+            try { ts_pt_device?.Close(); } catch { }
+
+            ts1EndPointReader = null;
+            ts2EndPointReader = null;
+            i2cEndPointReader = null;
+            i2cEndPointWriter = null;
+            i2c_pt_device = null;
+            ts_pt_device = null;
+
             // Free usb resources.
             // This is necessary for libusb-1.0 and Linux compatibility.
-            UsbDevice.Exit();
+            try { UsbDevice.Exit(); } catch { }
         }
 
         byte gpio_write(byte pin_id, bool pin_value)
@@ -789,18 +811,23 @@ namespace opentuner
 
             if (device == TS2)
             {
+                if (ts2EndPointReader == null) { MarkIoFailure(); bytesRead = 0; return 1; }
                 error = ts2EndPointReader.Read(readdata, USB_TIMEOUT, out iBytesRead);
             }
             else
             {
+                if (ts1EndPointReader == null) { MarkIoFailure(); bytesRead = 0; return 1; }
                 error = ts1EndPointReader.Read(readdata, USB_TIMEOUT, out iBytesRead);
             }
 
             if (error != ErrorCode.Success)
             {
                 Log.Information("TS Read Error" + error.ToString());
+                MarkIoFailure();
                 return 1;
             }
+
+            MarkIoSuccess();
 
             // empty response
             if (iBytesRead == 2)
@@ -831,10 +858,17 @@ namespace opentuner
         {           
             byte err = 0;
 
-            if (device == TS2)
-                ts2EndPointReader.ReadFlush();
-            else
-                ts1EndPointReader.ReadFlush();
+            try
+            {
+                if (device == TS2)
+                    ts2EndPointReader?.ReadFlush();
+                else
+                    ts1EndPointReader?.ReadFlush();
+            }
+            catch (Exception)
+            {
+                // Device may have been removed; ignore and let the reconnect logic handle it.
+            }
 
             return err;
         }

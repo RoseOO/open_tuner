@@ -132,7 +132,7 @@ namespace opentuner.Utilities
             _RecordButton.Top = _parent.Controls[_parent.Controls.Count - 1].Top + _parent.Controls[_parent.Controls.Count - 1].Height + top_margin;
             _RecordButton.Left = left_margin + _parent.Width - (1 * (buttonSize + 2));
             _RecordButton.Click += _RecordButton_Click;
-            _toolTip.SetToolTip(_RecordButton, "Record");
+            _toolTip.SetToolTip(_RecordButton, "Record raw stream to .ts");
 
             _parent.Controls.Add(_MuteButton);
             _parent.Controls.Add(_SnapshotButton);

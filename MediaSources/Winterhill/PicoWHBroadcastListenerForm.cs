@@ -15,6 +15,7 @@ namespace opentuner.MediaSources.WinterHill
         public PicoWHBroadcastListenerForm()
         {
             InitializeComponent();
+            opentuner.Utilities.Theme.Apply(this);
         }
 
 
@@ -104,9 +105,18 @@ namespace opentuner.MediaSources.WinterHill
             
         }
 
+        private bool _closing = false;
+
         public void CloseForm()
         {
-            broadCastListener?.Close();
+            if (_closing)
+                return;
+
+            _closing = true;
+
+            try { broadCastListener?.Close(); } catch { }
+            broadCastListener = null;
+
             Close();
         }
 
@@ -203,8 +213,25 @@ namespace opentuner.MediaSources.WinterHill
 
         private void PicoWHBroadcastListenerForm_FormClosing(object sender, FormClosingEventArgs e)
         {
-            //CloseForm();
-            //e.Cancel = false;
+            // Always release the UDP socket and listener thread, regardless of how the
+            // form was closed (title bar X, Close button, Esc or Alt+F4).
+            if (!_closing)
+            {
+                _closing = true;
+                try { broadCastListener?.Close(); } catch { }
+                broadCastListener = null;
+            }
+
+            try { WH_Client?.Close(); } catch { }
+        }
+
+        private void PicoWHBroadcastListenerForm_KeyDown(object sender, KeyEventArgs e)
+        {
+            if (e.KeyCode == Keys.Escape)
+            {
+                e.Handled = true;
+                CloseForm();
+            }
         }
     }
 }

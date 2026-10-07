@@ -65,6 +65,7 @@
   </PropertyGroup>
   <PropertyGroup>
     <ApplicationIcon>tv.ico</ApplicationIcon>
+    <ApplicationManifest>app.manifest</ApplicationManifest>
   </PropertyGroup>
   <ItemGroup>
     <Reference Include="CoreAudio, Version=2023.2.28.120, Culture=neutral, processorArchitecture=MSIL">
@@ -236,6 +237,10 @@
   <ItemGroup>
     <Compile Include="BBFrameUDP.cs" />
     <Compile Include="ExtraFeatures\BATCSpectrum\BATCSpectrum.cs" />
+    <Compile Include="ExtraFeatures\SdrSpectrum\SdrSettings.cs" />
+    <Compile Include="ExtraFeatures\SdrSpectrum\SdrDevices.cs" />
+    <Compile Include="ExtraFeatures\SdrSpectrum\SdrSpectrum.cs" />
+    <Compile Include="ExtraFeatures\SdrSpectrum\SdrSettingsForm.cs" />
     <Compile Include="ExtraFeatures\BATCWebchat\BatcChat.cs" />
     <Compile Include="ExtraFeatures\BATCWebchat\WebChatSettings.cs" />
     <Compile Include="ExtraFeatures\BATCWebchat\WebChatSettngsForm.cs">
@@ -384,6 +389,7 @@
       <SubType>Component</SubType>
     </Compile>
     <Compile Include="Utilities\CommonFunctions.cs" />
+    <Compile Include="Utilities\Theme.cs" />
     <Compile Include="Utilities\DynamicPropertyGroups.cs" />
     <Compile Include="Utilities\DynamicPropertyInterface.cs" />
     <Compile Include="Utilities\DynamicPropertyItem.cs" />
@@ -636,5 +642,19 @@
     <ItemGroup>
       <Compile Include="$(IntermediateOutputPath)gen.cs" />
     </ItemGroup>
+  </Target>
+  <!--
+    Flyleaf (the FFMPEG media player) loads its shared FFmpeg libraries from an
+    "ffmpeg" folder next to the executable. The FFmpeg.Stable NuGet package ships
+    the matching FFmpeg 6.1 x64 DLLs (avcodec-60 etc.), so copy them into place as
+    part of every build.
+  -->
+  <Target Name="CopyFFmpegNativeLibraries" AfterTargets="Build">
+    <ItemGroup>
+      <FFmpegNativeLibraries Include="packages\FFmpeg.Stable.6.1.0\build\native\bin\x64\*.dll" />
+    </ItemGroup>
+    <MakeDir Directories="$(OutDir)ffmpeg" Condition="'@(FFmpegNativeLibraries)' != ''" />
+    <Copy SourceFiles="@(FFmpegNativeLibraries)" DestinationFolder="$(OutDir)ffmpeg" SkipUnchangedFiles="true" Condition="'@(FFmpegNativeLibraries)' != ''" />
+    <Warning Text="FFmpeg native libraries were not found in packages\FFmpeg.Stable.6.1.0. Run NuGet restore so the FFMPEG media player works." Condition="'@(FFmpegNativeLibraries)' == ''" />
   </Target>
 </Project>

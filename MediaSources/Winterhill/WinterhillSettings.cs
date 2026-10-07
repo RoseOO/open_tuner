@@ -12,6 +12,15 @@
         public string WinterHillUdpHost = "192.168.0.124";
         public int WinterHillUdpBasePort = 9900;
 
+        // Automatically detect a lost connection to a PicoTuner (WH) over Ethernet
+        // and re-send the current tuning settings once it is reachable again.
+        public bool AutoReconnect = true;
+
+        // On connect, listen for the PicoTuner (WH) broadcast and use the advertised
+        // IP address / base port instead of the ones configured above.
+        public bool AutoFindUdp = true;
+        public int AutoFindTimeoutMs = 6000;
+
 
         public uint[] RFPort = new uint[] { 0, 0, 0, 0 };
 

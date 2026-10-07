@@ -16,6 +16,7 @@ namespace opentuner.MediaSources.Minitiouner
         public MinitiounerSettingsForm(ref MinitiounerSettings Settings)
         {
             InitializeComponent();
+            opentuner.Utilities.Theme.Apply(this);
             _settings = Settings;
 
             comboHardwareInterface.SelectedIndex = _settings.DefaultInterface;
@@ -24,6 +25,7 @@ namespace opentuner.MediaSources.Minitiouner
             comboSupplyADefault.SelectedIndex = _settings.DefaultLnbASupply;
             comboSupplyBDefault.SelectedIndex = _settings.DefaultLnbBSupply;
             ComboDefaultRFInput.SelectedIndex = _settings.DefaultRFInput;
+            checkAutoReconnect.Checked = _settings.AutoReconnect;
         }
 
         private void btnCancel_Click(object sender, EventArgs e)
@@ -55,6 +57,7 @@ namespace opentuner.MediaSources.Minitiouner
 
             _settings.Offset1 = offset1;
             _settings.Offset2 = offset2;
+            _settings.AutoReconnect = checkAutoReconnect.Checked;
 
             DialogResult = DialogResult.OK;
             Close();

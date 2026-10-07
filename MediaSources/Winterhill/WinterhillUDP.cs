@@ -2,6 +2,7 @@
 using System.Net;
 using System.Text;
 using System.Net.Sockets;
+using System.Text.RegularExpressions;
 using Serilog;
 using opentuner.Utilities;
 
@@ -12,6 +13,104 @@ namespace opentuner.MediaSources.WinterHill
         UdpClient WH_Client = new UdpClient();
 
         UDPClient longmynd_status;
+
+        public const int WH_BROADCAST_PORT = 9997;
+
+        /// <summary>
+        /// Listens for the PicoTuner (WH) status broadcast on UDP 9997 and extracts
+        /// the advertised IP address and base port. Returns false (leaving the
+        /// configured values untouched) if nothing is heard before the timeout.
+        /// </summary>
+        public bool TryAutoFindWinterHill(out string ip, out int basePort)
+        {
+            ip = null;
+            basePort = 0;
+
+            UdpClient listener = null;
+
+            try
+            {
+                listener = new UdpClient(WH_BROADCAST_PORT);
+                listener.Client.ReceiveTimeout = 1000;
+
+                Log.Information("PicoTuner (WH): auto-finding device (listening on UDP " + WH_BROADCAST_PORT +
+                                " for up to " + _settings.AutoFindTimeoutMs + " ms)");
+
+                DateTime deadline = DateTime.UtcNow.AddMilliseconds(_settings.AutoFindTimeoutMs);
+
+                while (DateTime.UtcNow < deadline)
+                {
+                    try
+                    {
+                        IPEndPoint remote = new IPEndPoint(IPAddress.Any, 0);
+                        byte[] data = listener.Receive(ref remote);
+                        string message = Encoding.ASCII.GetString(data);
+
+                        if (TryParseBroadcast(message, out string foundIp, out int foundPort))
+                        {
+                            ip = foundIp;
+                            basePort = foundPort;
+
+                            Log.Information("PicoTuner (WH): auto-found at " + ip + ":" + basePort.ToString());
+                            return true;
+                        }
+                    }
+                    catch (SocketException sex) when (sex.SocketErrorCode == SocketError.TimedOut)
+                    {
+                        // no broadcast yet - keep waiting until the deadline
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                Log.Warning("PicoTuner (WH): auto-find failed (" + ex.Message + "), using configured address");
+            }
+            finally
+            {
+                try { listener?.Close(); } catch { }
+            }
+
+            Log.Warning("PicoTuner (WH): no broadcast received, using configured address " +
+                        _settings.WinterHillUdpHost + ":" + _settings.WinterHillUdpBasePort.ToString());
+            return false;
+        }
+
+        private static bool TryParseBroadcast(string message, out string ip, out int basePort)
+        {
+            ip = null;
+            basePort = 0;
+
+            string foundIp = null;
+            int foundPort = 0;
+
+            foreach (string rawLine in message.Split('\n'))
+            {
+                string line = rawLine.Trim();
+
+                if (foundIp == null && line.IndexOf("IP address", StringComparison.OrdinalIgnoreCase) >= 0)
+                {
+                    Match m = Regex.Match(line, @"\b(\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3})\b");
+                    if (m.Success)
+                        foundIp = m.Groups[1].Value;
+                }
+
+                if (foundPort == 0 && line.IndexOf("Base IP port", StringComparison.OrdinalIgnoreCase) >= 0)
+                {
+                    Match m = Regex.Match(line, @"\b(\d{2,5})\b");
+                    if (m.Success)
+                        foundPort = int.Parse(m.Groups[1].Value);
+                }
+            }
+
+            if (foundIp != null && foundPort > 0)
+            {
+                ip = foundIp;
+                basePort = foundPort;
+                return true;
+            }
+
+            return false;
+        }
 
         public void ConnectWinterHillUDP(int port)
         {
@@ -41,6 +140,9 @@ namespace opentuner.MediaSources.WinterHill
         private void Longmynd_status_DataReceived(object sender, byte[] e)
         {
             // Log.Information("Status Data Received");
+
+            // Heartbeat for the connection watchdog.
+            _lastStatusUtc = DateTime.UtcNow;
 
             var data = Encoding.ASCII.GetString(e);
 
@@ -213,6 +315,10 @@ namespace opentuner.MediaSources.WinterHill
             }
 
             _settings.LNBVoltage[plug] = voltage;
+
+            // let the SDR spectrum follow the polarisation (18V = horizontal/WB, 13V = vertical/NB)
+            if (plug == 0)
+                NotifyPolarizationChanged(voltage == 18 ? 2 : (voltage == 13 ? 1 : 0));
 
             Log.Information(command2);
 

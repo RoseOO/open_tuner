@@ -14,8 +14,13 @@ namespace opentuner
         public string media_path = "";
         public string media_video_path = "";
 
+        // When enabled, incoming transport streams are recorded to raw .ts files as
+        // soon as streaming starts (the per-tuner "R" button can still toggle it).
+        public bool auto_record = false;
+
         [Group("Settings 2")]
         public bool enable_spectrum_checkbox = true;
+        public bool enable_sdr_spectrum_checkbox = false;
         public bool enable_chatform_checkbox = true;
         public bool enable_mqtt_checkbox = false;
         public bool enable_quicktune_checkbox = false;

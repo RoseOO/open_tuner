@@ -14,6 +14,46 @@ namespace opentuner.MediaSources.Minitiouner.HardwareInterfaces
 
         public abstract string GetName { get; }
 
+        // Timestamp of the last successful communication with the device. Used by
+        // the owning source to detect a lost connection and trigger a reconnect.
+        public DateTime LastSuccessfulIo { get; protected set; } = DateTime.UtcNow;
+
+        // True once the device has been successfully opened/initialised.
+        public bool IsConnected { get; protected set; } = false;
+
+        public event EventHandler<bool> ConnectionStatusChanged;
+
+        protected void MarkIoSuccess()
+        {
+            LastSuccessfulIo = DateTime.UtcNow;
+
+            if (!IsConnected)
+            {
+                IsConnected = true;
+                ConnectionStatusChanged?.Invoke(this, true);
+            }
+        }
+
+        protected void MarkIoFailure()
+        {
+            if (IsConnected)
+            {
+                IsConnected = false;
+                ConnectionStatusChanged?.Invoke(this, false);
+            }
+        }
+
+        // Called by the source when it (re)initialises the hardware.
+        public void MarkConnected()
+        {
+            MarkIoSuccess();
+        }
+
+        public void MarkDisconnected()
+        {
+            IsConnected = false;
+        }
+
         // TODO: change to more generic detect
         public abstract byte hw_detect(ref uint i2c_port, ref uint ts_port, ref uint ts_port2, ref string detectedDeviceName, string i2c_serial, string ts_serial, string ts2_serial);
         public abstract byte hw_detect(ref uint i2c_port, ref uint ts_port, ref uint ts_port2, ref string detectedDeviceName);

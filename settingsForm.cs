@@ -18,6 +18,8 @@ namespace opentuner
         {
             InitializeComponent();
 
+            opentuner.Utilities.Theme.Apply(this);
+
             _settings = settings;
 
             // load settings
@@ -46,6 +48,7 @@ namespace opentuner
             txtVideoPath.Text = _settings.media_video_path;
 
             checkBoxMuted.Checked = _settings.mute_at_startup;
+            checkBoxAutoRecord.Checked = _settings.auto_record;
         }
 
         private void button3_Click(object sender, EventArgs e)
@@ -112,6 +115,7 @@ namespace opentuner
             _settings.default_source = comboDefaultSource.SelectedIndex;
 
             _settings.mute_at_startup = checkBoxMuted.Checked;
+            _settings.auto_record = checkBoxAutoRecord.Checked;
 
             this.DialogResult = DialogResult.OK;
             Close();

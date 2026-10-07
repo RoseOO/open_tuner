@@ -29,6 +29,7 @@
         private void InitializeComponent()
         {
             this.groupHardwareInterface = new System.Windows.Forms.GroupBox();
+            this.checkAutoReconnect = new System.Windows.Forms.CheckBox();
             this.txtIpAddress = new System.Windows.Forms.MaskedTextBox();
             this.label2 = new System.Windows.Forms.Label();
             this.comboHardwareInterface = new System.Windows.Forms.ComboBox();
@@ -52,6 +53,7 @@
             // 
             // groupHardwareInterface
             // 
+            this.groupHardwareInterface.Controls.Add(this.checkAutoReconnect);
             this.groupHardwareInterface.Controls.Add(this.txtIpAddress);
             this.groupHardwareInterface.Controls.Add(this.label2);
             this.groupHardwareInterface.Controls.Add(this.comboHardwareInterface);
@@ -64,6 +66,17 @@
             this.groupHardwareInterface.TabIndex = 0;
             this.groupHardwareInterface.TabStop = false;
             this.groupHardwareInterface.Text = "Hardware Interface";
+            // 
+            // checkAutoReconnect
+            // 
+            this.checkAutoReconnect.AutoSize = true;
+            this.checkAutoReconnect.Location = new System.Drawing.Point(21, 104);
+            this.checkAutoReconnect.Margin = new System.Windows.Forms.Padding(4, 4, 4, 4);
+            this.checkAutoReconnect.Name = "checkAutoReconnect";
+            this.checkAutoReconnect.Size = new System.Drawing.Size(230, 20);
+            this.checkAutoReconnect.TabIndex = 4;
+            this.checkAutoReconnect.Text = "Auto reconnect PicoTuner (restore tuning)";
+            this.checkAutoReconnect.UseVisualStyleBackColor = true;
             // 
             // txtIpAddress
             // 
@@ -307,5 +320,6 @@
         private System.Windows.Forms.Label label3;
         private System.Windows.Forms.Button btnSave;
         private System.Windows.Forms.Button btnCancel;
+        private System.Windows.Forms.CheckBox checkAutoReconnect;
     }
 }

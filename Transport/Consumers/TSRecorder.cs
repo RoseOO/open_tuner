@@ -1,17 +1,14 @@
 ﻿using opentuner.MediaSources;
 using Serilog;
 using System;
-using System.Collections.Concurrent;
-using System.Collections.Generic;
 using System.IO;
-using System.Linq;
-using System.Text;
 using System.Threading;
-using System.Threading.Tasks;
-using WebSocketSharp;
 
 namespace opentuner
 {
+    // Records the incoming (raw) transport stream for a single tuner to a .ts file.
+    // The recorder taps the source's raw TS consumer queue, so what is written to
+    // disk is the unmodified 188 byte packet stream as received from the device.
     public class TSRecorder
     {
 
@@ -32,18 +29,24 @@ namespace opentuner
             set
             {
                 lock (locker)
-                    _record =value;
+                    _record = value;
             }
         }
 
         public int ID { get { return _id; } }
         private int _id = 0;
 
-        bool recording = false;
+        private volatile bool recording = false;
+        public bool IsRecording { get { return recording; } }
+
+        // Full path of the file currently being written (empty when not recording).
+        public string CurrentFilename { get; private set; } = "";
+
         string media_path = "";
 
-        private bool _running = false;
+        private volatile bool _running = false;
         private Thread _recorderThread = null;
+        private readonly ManualResetEventSlim _wake = new ManualResetEventSlim(false);
 
         public TSRecorder(string _media_path, int id, OTSource TSSource)
         {
@@ -55,101 +58,151 @@ namespace opentuner
 
             recording = false;
 
-            _recorderThread = new Thread(worker_thread);
+            _recorderThread = new Thread(worker_thread)
+            {
+                IsBackground = true,
+                Name = "TSRecorder" + id.ToString()
+            };
             _recorderThread.Start();
         }
 
         public void Close()
         {
-            // TODO: close file properly if recording when closing
+            // Request a stop and wait for the worker to finalise the file. Never
+            // abort the thread so the last packets are flushed to disk.
             _running = false;
-            _recorderThread?.Abort();
+            record = false;
+            _wake.Set();
+
+            try { _recorderThread?.Join(2000); } catch { }
+
+            _recorderThread = null;
+        }
+
+        private void StopRecording(ref BinaryWriter binWriter)
+        {
+            try
+            {
+                if (binWriter != null)
+                {
+                    binWriter.Flush();
+                    binWriter.Close();
+                    binWriter.Dispose();
+                }
+            }
+            catch (Exception ex)
+            {
+                Log.Error(ex, "Error closing raw TS file");
+            }
+            finally
+            {
+                binWriter = null;
+            }
+
+            recording = false;
+            CurrentFilename = "";
+            onRecordStatusChange?.Invoke(this, false);
+        }
+
+        private bool StartRecording(ref BinaryWriter binWriter)
+        {
+            try
+            {
+                string filename = DateTime.Now.ToString("yyyy-dd-M--HH-mm-ss") + "_" + _id + ".ts";
+
+                // if path doesn't exist then save in same folder
+                if (!string.IsNullOrEmpty(media_path) && Directory.Exists(media_path))
+                {
+                    filename = Path.Combine(media_path, DateTime.Now.ToString("yyyy-dd-M--HH-mm-ss") + "_" + _id + ".ts");
+                }
+
+                binWriter = new BinaryWriter(File.Open(filename, FileMode.Create));
+
+                recording = true;
+                CurrentFilename = filename;
+
+                Log.Information("Recording raw TS to " + filename);
+
+                onRecordStatusChange?.Invoke(this, true);
+                return true;
+            }
+            catch (Exception ex)
+            {
+                Log.Error(ex, "Unable to start raw TS recording");
+                binWriter = null;
+                recording = false;
+                CurrentFilename = "";
+                record = false;
+                onRecordStatusChange?.Invoke(this, false);
+                return false;
+            }
         }
 
         public void worker_thread()
         {
             _running = true;
             BinaryWriter binWriter = null;
-            byte data;
             bool ts_sync = true;
+
             try
             {
                 while (_running)
                 {
                     if (recording == false && record == true)
                     {
-                        // open a new file
-                        Log.Information("recording");
-
-                        string filename = DateTime.Now.ToString("yyyy-dd-M--HH-mm-ss") + "_" + _id + ".ts";
-
-                        // if path doesn't exist then save in same folder
-                        if (Directory.Exists(media_path))
-                        {
-                            filename = this.media_path + DateTime.Now.ToString("yyyy-dd-M--HH-mm-ss") + "_" + _id + ".ts";
-                        }
-                        
-                        binWriter = new BinaryWriter(File.Open(filename, FileMode.Create));
-                        recording = true;
-                        ts_sync = true;
-
+                        StartRecording(ref binWriter);
                         ts_data_queue.Clear();
-
-                        onRecordStatusChange?.Invoke(this, true);
+                        ts_sync = true;
                     }
-                    else
+                    else if (recording == true && record == false)
                     {
-                        if (recording == true && record == false)
-                        {
-                            Log.Information("stop recording");
-                            recording = false;
-
-                            // stop record
-                            binWriter.Close();
-                            binWriter.Dispose();
-                            binWriter = null;
-
-                            onRecordStatusChange?.Invoke(this, false);
-                        }
+                        StopRecording(ref binWriter);
                     }
 
                     int ts_data_count = ts_data_queue.Count;
 
                     if (ts_data_count > 0)
                     {
-                        //if (_ts_data_queue.TryDequeue(out data))
-                        //{                        
-                        data = ts_data_queue.Dequeue();
+                        try
+                        {
+                            byte data = ts_data_queue.Dequeue();
 
-                            if (record == true)
+                            if (record == true && binWriter != null)
                             {
-
-                                if (binWriter != null)
+                                if (ts_sync == true && data == 0x47)
                                 {
-                                    if (ts_sync == true && data == 0x47)
-                                    {
-                                        Log.Information("TS Header Sync");
-                                        ts_sync = false;
-                                    }
+                                    Log.Information("TS Header Sync");
+                                    ts_sync = false;
+                                }
 
-                                    if (ts_sync == false)
-                                    { 
-                                        binWriter.Write(data);
-                                    }
+                                if (ts_sync == false)
+                                {
+                                    binWriter.Write(data);
                                 }
                             }
-                        //}
+                        }
+                        catch (Exception ex)
+                        {
+                            Log.Error(ex, "Raw TS recorder read error");
+                        }
                     }
                     else
                     {
-                        Thread.Sleep(100);
+                        // Wake immediately if closing/record state changes, otherwise
+                        // idle briefly to avoid spinning.
+                        _wake.Wait(50);
+                        _wake.Reset();
                     }
                 }
             }
-            catch (ThreadAbortException)
+            catch (Exception ex)
             {
-                //Log.Information("TS Recorder Thread: Closed");
-                Thread.ResetAbort();
+                Log.Error(ex, "Raw TS recorder thread terminated unexpectedly");
+            }
+            finally
+            {
+                StopRecording(ref binWriter);
+                Log.Information("Raw TS recorder thread stopped");
             }
         }
     }

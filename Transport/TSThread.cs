@@ -71,11 +71,12 @@ namespace opentuner
             shutdown_worker_thread = true;
             thread_wait_event_handle.Set(); // fire worker thread to handle stop event
 
-            int count = 10;
-            while (!worker_thread_stopped && count != 0)
+            // Wait (with a bounded timeout) for the worker to acknowledge the stop.
+            for (int i = 0; i < 20 && !worker_thread_stopped; i++)
             {
-                Task.Delay(100);    // delay to allow worker thread to stop
+                Thread.Sleep(100);    // delay to allow worker thread to stop
             }
+
             stopped = worker_thread_stopped;
         }
 

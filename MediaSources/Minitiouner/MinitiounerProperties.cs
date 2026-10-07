@@ -773,26 +773,32 @@ namespace opentuner.MediaSources.Minitiouner
                 case MinitiounerPropertyCommands.LNBA_OFF:
                     current_lnba_psu = 0;
                     change_frequency(0, current_frequency_0, current_sr_0, current_rf_input_0, current_tone_22kHz_P1, current_lnba_psu, current_lnbb_psu);
+                    NotifyPolarizationChanged(current_lnba_psu);
                     break;
                 case MinitiounerPropertyCommands.LNBA_VERTICAL:
                     current_lnba_psu = 1;
                     change_frequency(0, current_frequency_0, current_sr_0, current_rf_input_0, current_tone_22kHz_P1, current_lnba_psu, current_lnbb_psu);
+                    NotifyPolarizationChanged(current_lnba_psu);
                     break;
                 case MinitiounerPropertyCommands.LNBA_HORIZONTAL:
                     current_lnba_psu = 2;
                     change_frequency(0, current_frequency_0, current_sr_0, current_rf_input_0, current_tone_22kHz_P1, current_lnba_psu, current_lnbb_psu);
+                    NotifyPolarizationChanged(current_lnba_psu);
                     break;
                 case MinitiounerPropertyCommands.LNBB_OFF:
                     current_lnbb_psu = 0;
                     change_frequency(0, current_frequency_0, current_sr_0, current_rf_input_0, current_tone_22kHz_P1, current_lnba_psu, current_lnbb_psu);
+                    NotifyPolarizationChanged(current_lnbb_psu);
                     break;
                 case MinitiounerPropertyCommands.LNBB_VERTICAL:
                     current_lnbb_psu = 1;
                     change_frequency(0, current_frequency_0, current_sr_0, current_rf_input_0, current_tone_22kHz_P1, current_lnba_psu, current_lnbb_psu);
+                    NotifyPolarizationChanged(current_lnbb_psu);
                     break;
                 case MinitiounerPropertyCommands.LNBB_HORIZONTAL:
                     current_lnbb_psu = 2;
                     change_frequency(0, current_frequency_0, current_sr_0, current_rf_input_0, current_tone_22kHz_P1, current_lnba_psu, current_lnbb_psu);
+                    NotifyPolarizationChanged(current_lnbb_psu);
                     break;
             }
         }

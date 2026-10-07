@@ -248,7 +248,10 @@
             this.AutoScaleDimensions = new System.Drawing.SizeF(6F, 13F);
             this.AutoScaleMode = System.Windows.Forms.AutoScaleMode.Font;
             this.ClientSize = new System.Drawing.Size(918, 384);
-            this.ControlBox = false;
+            this.ControlBox = true;
+            this.MaximizeBox = false;
+            this.MinimizeBox = false;
+            this.KeyPreview = true;
             this.Controls.Add(this.llblCopyToClickboardPort);
             this.Controls.Add(this.llblCopyToClickboardIP);
             this.Controls.Add(this.groupBox1);
@@ -265,6 +268,7 @@
             this.TopMost = true;
             this.FormClosing += new System.Windows.Forms.FormClosingEventHandler(this.PicoWHBroadcastListenerForm_FormClosing);
             this.Load += new System.EventHandler(this.PicoWHBroadcastListenerForm_Load);
+            this.KeyDown += new System.Windows.Forms.KeyEventHandler(this.PicoWHBroadcastListenerForm_KeyDown);
             this.groupBox1.ResumeLayout(false);
             this.groupBox1.PerformLayout();
             this.ResumeLayout(false);

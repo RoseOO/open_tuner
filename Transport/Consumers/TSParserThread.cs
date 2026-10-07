@@ -33,6 +33,12 @@ namespace opentuner
 
         public CircularBuffer parser_ts_data_queue = new CircularBuffer(GlobalDefines.CircularBufferStartingCapacity);
 
+        private volatile bool _stop = false;
+
+        public void Stop()
+        {
+            _stop = true;
+        }
 
         //public TSParserThread(TSDataCallback _ts_data_callback, CircularBuffer _parser_ts_data_queue)
         public TSParserThread(TSDataCallback _ts_data_callback)
@@ -51,7 +57,7 @@ namespace opentuner
 
             try
             {
-                while (true)
+                while (!_stop)
                 {
                     int ts_data_count = parser_ts_data_queue.Count;
 

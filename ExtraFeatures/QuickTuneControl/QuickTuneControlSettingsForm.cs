@@ -18,6 +18,7 @@ namespace opentuner.ExtraFeatures.QuickTuneControl
         {
             _settings = Settings;
             InitializeComponent();
+            opentuner.Utilities.Theme.Apply(this);
 
             txtUdp1.Text = _settings.UDPListenPorts[0].ToString();
             txtUdp2.Text = _settings.UDPListenPorts[1].ToString();
