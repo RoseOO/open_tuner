@@ -1,4 +1,4 @@
-using System.Windows;
+﻿using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Media;
 using opentuner.MediaSources;
@@ -16,7 +16,7 @@ namespace OpenTuner.Wpf.Dialogs
         {
             _source = source;
 
-            Title = "Hardware Info";
+            Title = LocalizationManager.Get("dt.hardware");
             Width = 480; Height = 400;
             WindowStartupLocation = WindowStartupLocation.CenterOwner;
             Background = (Brush)Application.Current.FindResource("WindowBackground");
@@ -29,7 +29,7 @@ namespace OpenTuner.Wpf.Dialogs
             panel.Children.Add(new TextBlock { Text = "Description", Margin = new Thickness(0, 12, 0, 4), Foreground = (Brush)Application.Current.FindResource("TextSecondary") });
             panel.Children.Add(_desc);
 
-            var refresh = new Button { Content = "Refresh", Width = 100, HorizontalAlignment = HorizontalAlignment.Left, Margin = new Thickness(0, 12, 0, 0) };
+            var refresh = new Button { Content = LocalizationManager.Get("btn.refresh"), Width = 100, HorizontalAlignment = HorizontalAlignment.Left, Margin = new Thickness(0, 12, 0, 0) };
             refresh.Click += (s, e) => Refresh();
             panel.Children.Add(refresh);
 

@@ -49,6 +49,13 @@ namespace OpenTuner.Wpf.Spectrum
 
         public void SetSelectedReceiver(int rx) => _selectedReceiver = rx;
 
+        /// <summary>Stops the FFT websocket (called on app shutdown).</summary>
+        public void Stop()
+        {
+            try { _timer?.Stop(); } catch { }
+            try { _socket?.stop(); } catch { }
+        }
+
         // BATC web spectrum covers 10490.5 MHz +/- 4.5 (9 MHz wide)
         private const double StartMHz = 10490.5;
         private const double SpanMHz = 9.0;
@@ -70,7 +77,11 @@ namespace OpenTuner.Wpf.Spectrum
 
             LoadBandplan();
 
-            Unloaded += (s, e) => { _timer.Stop(); try { _socket.stop(); } catch { } };
+            // NB: do NOT stop the websocket here - this control lives in a tab and
+            // WPF unloads tab content when you switch away. Stopping on unload used
+            // to kill the FFT feed permanently (and blocked auto-reconnect).
+            Loaded += (s, e) => { if (!_timer.IsEnabled) _timer.Start(); };
+            Unloaded += (s, e) => { _timer.Stop(); };
         }
 
         public void updateSignalCallsign(string callsign, double freq, float sr)

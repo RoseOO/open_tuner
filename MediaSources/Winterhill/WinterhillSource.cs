@@ -335,21 +335,18 @@ namespace opentuner.MediaSources.WinterHill
 
         byte ReadTSGeneric(int id, ref byte[] data, ref uint dataRead)
         {
-            int read = udp_buffer[id].Count;
-            uint written = 0;
+            dataRead = 0;
 
-            if (udp_buffer[id].Count > 4000)
-            {
-                read = 4000;
-            }
+            if (data == null || data.Length == 0)
+                return 1;
 
-            for (int c = 0; c < read; c++)
-            {
-                data[c] = udp_buffer[id].Dequeue();
-                written += 1;
-            }
+            int read = Math.Min(udp_buffer[id].Count, data.Length);
+            if (read <= 0)
+                return 0;
 
-            dataRead = written;
+            byte[] chunk = udp_buffer[id].DequeueBytes(read);
+            Array.Copy(chunk, data, chunk.Length);
+            dataRead = (uint)chunk.Length;
 
             return 0;
         }
@@ -381,10 +378,9 @@ namespace opentuner.MediaSources.WinterHill
             if (!playing[device])
                 return;
 
-            for (int c = 0; c < e.Length; c++)
-            {
-                udp_buffer[device].Enqueue(e[c]);
-            }
+            // enqueue the whole datagram in one locked copy (much faster than per-byte)
+            if (e != null && e.Length > 0)
+                udp_buffer[device].Enqueue(e);
             ts_threads[device].NewDataPresent();
         }
 

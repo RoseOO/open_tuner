@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.IO;
 using System.Linq;
 using System.Windows;
@@ -28,7 +28,7 @@ namespace OpenTuner.Wpf.Dialogs
 
         public DebugWindow()
         {
-            Title = "Debug Log";
+            Title = LocalizationManager.Get("dt.debug");
             Width = 760; Height = 560;
             WindowStartupLocation = WindowStartupLocation.CenterOwner;
             Background = (Brush)Application.Current.FindResource("WindowBackground");
@@ -46,11 +46,11 @@ namespace OpenTuner.Wpf.Dialogs
             };
             DockPanel.SetDock(buttons, Dock.Bottom);
             var sp = new StackPanel { Orientation = Orientation.Horizontal, HorizontalAlignment = HorizontalAlignment.Right };
-            var refresh = new Button { Content = "Refresh", Width = 96, Margin = new Thickness(0, 0, 10, 0) };
+            var refresh = new Button { Content = LocalizationManager.Get("btn.refresh"), Width = 96, Margin = new Thickness(0, 0, 10, 0) };
             refresh.Click += (s, e) => { _readPos = 0; _currentFile = ""; _log.Clear(); Tail(); };
             var open = new Button { Content = "Open Folder", Width = 110, Margin = new Thickness(0, 0, 10, 0) };
             open.Click += (s, e) => { try { System.Diagnostics.Process.Start(LogDir()); } catch { } };
-            var close = new Button { Content = "Close", Width = 96 };
+            var close = new Button { Content = LocalizationManager.Get("btn.close"), Width = 96 };
             close.SetResourceReference(FrameworkElement.StyleProperty, "PrimaryButton");
             close.Click += (s, e) => Close();
             sp.Children.Add(refresh);

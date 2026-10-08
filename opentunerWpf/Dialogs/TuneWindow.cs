@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Media;
@@ -23,7 +23,7 @@ namespace OpenTuner.Wpf.Dialogs
             _source = source;
             _initialRx = initialRx;
 
-            Title = "Tune";
+            Title = LocalizationManager.Get("dt.tune");
             Width = 360; Height = 300;
             WindowStartupLocation = WindowStartupLocation.CenterOwner;
             Background = (Brush)Application.Current.FindResource("WindowBackground");
@@ -53,7 +53,7 @@ namespace OpenTuner.Wpf.Dialogs
             var tune = new Button { Content = "Tune", Width = 96, Margin = new Thickness(0, 0, 10, 0) };
             tune.SetResourceReference(FrameworkElement.StyleProperty, "PrimaryButton");
             tune.Click += (s, e) => { ApplyTune(); DialogResult = true; };
-            var close = new Button { Content = "Close", Width = 96 };
+            var close = new Button { Content = LocalizationManager.Get("btn.close"), Width = 96 };
             close.Click += (s, e) => { DialogResult = false; Close(); };
             sp.Children.Add(tune);
             sp.Children.Add(close);

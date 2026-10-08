@@ -1,4 +1,4 @@
-using System.Windows;
+﻿using System.Windows;
 using System.Windows.Controls;
 using opentuner;
 
@@ -11,7 +11,6 @@ namespace OpenTuner.Wpf.Dialogs
 
         private ComboBox comboDefaultSource;
         private ComboBox[] comboPlayer = new ComboBox[4];
-        private CheckBox[] chkWindowed = new CheckBox[4];
         private TextBox[] txtHost = new TextBox[4];
         private TextBox[] txtPort = new TextBox[4];
         private TextBox txtSnapshotPath;
@@ -23,7 +22,7 @@ namespace OpenTuner.Wpf.Dialogs
         {
             _settings = settings;
 
-            Title = "Open Tuner Settings";
+            Title = LocalizationManager.Get("dt.settings");
             Width = 560; Height = 640;
             WindowStartupLocation = WindowStartupLocation.CenterOwner;
             Background = (System.Windows.Media.Brush)Application.Current.FindResource("WindowBackground");
@@ -50,9 +49,9 @@ namespace OpenTuner.Wpf.Dialogs
             DockPanel.SetDock(buttons, Dock.Bottom);
 
             var sp = new StackPanel { Orientation = Orientation.Horizontal, HorizontalAlignment = HorizontalAlignment.Right };
-            var cancel = new Button { Content = "Cancel", Width = 96, Margin = new Thickness(0, 0, 10, 0) };
+            var cancel = new Button { Content = LocalizationManager.Get("btn.cancel"), Width = 96, Margin = new Thickness(0, 0, 10, 0) };
             cancel.Click += (s, e) => { DialogResult = false; Close(); };
-            var save = new Button { Content = "Save", Width = 96 };
+            var save = new Button { Content = LocalizationManager.Get("btn.save"), Width = 96 };
             save.SetResourceReference(FrameworkElement.StyleProperty, "PrimaryButton");
             save.Click += (s, e) => Save_Click();
             sp.Children.Add(cancel);
@@ -79,11 +78,7 @@ namespace OpenTuner.Wpf.Dialogs
                 comboPlayer[i] = new ComboBox();
                 comboPlayer[i].Items.Add("VLC");
                 comboPlayer[i].Items.Add("FFMPEG");
-                comboPlayer[i].Items.Add("MPV");
                 AddRow("Video " + (i + 1) + " player", comboPlayer[i]);
-
-                chkWindowed[i] = new CheckBox { Content = "Separate window" };
-                AddRow("", chkWindowed[i]);
 
                 var hb = new StackPanel { Orientation = Orientation.Horizontal };
                 txtHost[i] = new TextBox { Width = 150 };
@@ -131,8 +126,8 @@ namespace OpenTuner.Wpf.Dialogs
 
             for (int i = 0; i < 4; i++)
             {
-                comboPlayer[i].SelectedIndex = _settings.mediaplayer_preferences[i] >= 0 && _settings.mediaplayer_preferences[i] < 3 ? _settings.mediaplayer_preferences[i] : 0;
-                chkWindowed[i].IsChecked = _settings.mediaplayer_windowed[i];
+                int pref = _settings.mediaplayer_preferences[i];
+                comboPlayer[i].SelectedIndex = (pref == 1) ? 1 : 0;   // only VLC(0)/FFMPEG(1) are supported in WPF
                 txtHost[i].Text = _settings.streamer_udp_hosts[i];
                 txtPort[i].Text = _settings.streamer_udp_ports[i].ToString();
             }
@@ -150,7 +145,6 @@ namespace OpenTuner.Wpf.Dialogs
             for (int i = 0; i < 4; i++)
             {
                 _settings.mediaplayer_preferences[i] = comboPlayer[i].SelectedIndex;
-                _settings.mediaplayer_windowed[i] = chkWindowed[i].IsChecked == true;
                 _settings.streamer_udp_hosts[i] = txtHost[i].Text;
                 if (int.TryParse(txtPort[i].Text, out int p))
                     _settings.streamer_udp_ports[i] = p;

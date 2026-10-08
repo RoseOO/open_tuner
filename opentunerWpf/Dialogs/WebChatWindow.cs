@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.Windows;
 using System.Windows.Controls;
@@ -26,12 +26,17 @@ namespace OpenTuner.Wpf.Dialogs
 
         private SocketIO _client;
 
+        private volatile bool _closing = false;
+        private int _reconnectAttempt = 0;
+        private readonly object _reconnectLock = new object();
+        private bool _reconnecting = false;
+
         public WebChatWindow(WebChatSettings settings, OTSource source)
         {
             _settings = settings;
             _source = source;
 
-            Title = "QO-100 Wideband Chat";
+            Title = LocalizationManager.Get("dt.webchat");
             Width = 720; Height = 520;
             WindowStartupLocation = WindowStartupLocation.CenterOwner;
             Background = (Brush)Application.Current.FindResource("WindowBackground");
@@ -139,9 +144,23 @@ namespace OpenTuner.Wpf.Dialogs
                 Query = new List<KeyValuePair<string, string>> { new KeyValuePair<string, string>("room", "eshail-wb") }
             });
 
-            _client.OnConnected += (s, e) => Dispatcher.Invoke(() => _connected.Text = "Connected: True");
-            _client.OnDisconnected += (s, e) => Dispatcher.Invoke(() => _connected.Text = "Connected: False");
-            _client.OnError += (s, e) => Dispatcher.Invoke(() => AddChat("", "", "Error: " + e));
+            _client.OnConnected += (s, e) =>
+            {
+                _reconnectAttempt = 0;
+                Dispatcher.Invoke(() => _connected.Text = "Connected: True");
+                if (_settings.gui_autologin)
+                    Dispatcher.Invoke(SetNick);
+            };
+            _client.OnDisconnected += (s, e) =>
+            {
+                Dispatcher.Invoke(() => _connected.Text = "Connected: False");
+                ScheduleReconnect();
+            };
+            _client.OnError += (s, e) =>
+            {
+                Dispatcher.Invoke(() => AddChat("", "", "Error: " + e));
+                ScheduleReconnect();
+            };
             _client.On("history", r => OnHistory(r));
             _client.On("message", r => OnMessage(r));
             _client.On("nicks", r => OnNicks(r));
@@ -149,23 +168,75 @@ namespace OpenTuner.Wpf.Dialogs
 
             AddChat("", "", "Connecting to eshail.batc.org.uk ...");
 
+            await TryConnect();
+        }
+
+        private async System.Threading.Tasks.Task TryConnect()
+        {
             try
             {
-                await _client.ConnectAsync();
-                if (!_client.Connected)
-                    AddChat("", "", "Not connected (TLS/firewall?). Will keep trying in the background.");
+                if (_client != null && !_client.Connected)
+                    await _client.ConnectAsync();
+
+                if (_client == null || !_client.Connected)
+                {
+                    AddChat("", "", "Not connected (TLS/firewall?). Retrying in the background...");
+                    ScheduleReconnect();
+                }
             }
             catch (Exception ex)
             {
-                AddChat("", "", "Connect failed: " + ex.Message);
+                AddChat("", "", "Connect failed: " + ex.Message + " - will retry.");
+                ScheduleReconnect();
+            }
+        }
+
+        private void ScheduleReconnect()
+        {
+            if (_closing)
+                return;
+
+            lock (_reconnectLock)
+            {
+                if (_reconnecting)
+                    return;
+                _reconnecting = true;
             }
 
-            if (_settings.gui_autologin)
-                SetNick();
+            System.Threading.Tasks.Task.Run(async () =>
+            {
+                try
+                {
+                    while (!_closing && _client != null && !_client.Connected)
+                    {
+                        int delay = Math.Min(30, (int)Math.Pow(2, Math.Min(_reconnectAttempt, 5)));
+                        _reconnectAttempt++;
+
+                        for (int i = 0; i < delay && !_closing; i++)
+                            await System.Threading.Tasks.Task.Delay(1000);
+
+                        if (_closing || _client.Connected)
+                            break;
+
+                        try
+                        {
+                            await _client.ConnectAsync();
+                        }
+                        catch { }
+                    }
+                }
+                finally
+                {
+                    lock (_reconnectLock) { _reconnecting = false; }
+                    if (!_closing && _client != null && !_client.Connected)
+                        ScheduleReconnect();
+                }
+            });
         }
 
         private void Stop()
         {
+            _closing = true;
             try { _client?.DisconnectAsync(); } catch { }
         }
 

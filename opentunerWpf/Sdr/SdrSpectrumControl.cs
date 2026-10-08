@@ -77,6 +77,22 @@ namespace OpenTuner.Wpf.Sdr
         private string _status = "Disconnected";
         private bool _connected;
 
+        // narrowband audio demod
+        private SdrAudioOutput _audio;
+        private double _ncoPhase;
+        private double _ncoInc;
+        private float _lpI, _lpQ;
+        private float _audioLp;
+        private float _deemphState;
+        private float _dcBlockState;
+        private int _decCount;
+        private float _decAccum;
+        private int _decimation = 50;
+        private float _demodLpAlpha;
+        private float _audioLpAlpha;
+        private float _deemphAlpha;
+        private float _dcAlpha;
+
         public SdrSettings Settings => _settings;
 
         public SdrSpectrumControl()
@@ -149,12 +165,62 @@ namespace OpenTuner.Wpf.Sdr
                       (_settings.SampleRateHz / 1e6).ToString("0.00") + " Msps";
             OnStatus?.Invoke(_status);
             InvalidateVisual();
+
+            SetupAudio();
+        }
+
+        private void SetupAudio()
+        {
+            try
+            {
+                if (_settings.AudioEnabled && _connected)
+                {
+                    if (_audio == null)
+                        _audio = new SdrAudioOutput();
+
+                    _audio.SetVolume(_settings.AudioVolume);
+                    _audio.Open();
+                }
+                else
+                {
+                    _audio?.Close();
+                }
+            }
+            catch { }
+
+            ConfigureDemod();
+        }
+
+        private void ConfigureDemod()
+        {
+            double sr = Math.Max(1, _settings.SampleRateHz);
+            _decimation = Math.Max(1, (int)Math.Round(sr / SdrAudioOutput.AudioRateHz));
+            _ncoInc = 2.0 * Math.PI * _settings.AudioOffsetHz / sr;
+
+            double passCut = Math.Max(1000, _settings.AudioFilterHz * 1.5);
+            _demodLpAlpha = (float)(1.0 - Math.Exp(-2.0 * Math.PI * passCut / sr));
+
+            double audioCut = Math.Max(300, _settings.AudioFilterEnabled ? _settings.AudioFilterHz : 8000);
+            _audioLpAlpha = (float)(1.0 - Math.Exp(-2.0 * Math.PI * audioCut / SdrAudioOutput.AudioRateHz));
+
+            if (_settings.DeemphasisUs > 0)
+            {
+                double tau = _settings.DeemphasisUs * 1e-6;
+                _deemphAlpha = (float)(1.0 - Math.Exp(-1.0 / (tau * SdrAudioOutput.AudioRateHz)));
+            }
+            else
+            {
+                _deemphAlpha = 0f;
+            }
+
+            _dcAlpha = (float)(1.0 - Math.Exp(-2.0 * Math.PI * 40.0 / SdrAudioOutput.AudioRateHz));
         }
 
         public void Disconnect()
         {
             try { _device?.Stop(); } catch { }
             try { _device?.Close(); } catch { }
+            try { _audio?.Close(); } catch { }
             _connected = false;
         }
 
@@ -285,6 +351,9 @@ namespace OpenTuner.Wpf.Sdr
 
         private void ProcessSample(float ii, float qq)
         {
+            if (_audio != null && _audio.IsOpen)
+                Demodulate(ii, qq);
+
             _fftBuffer[_fftIndex].X = ii * _window[_fftIndex];
             _fftBuffer[_fftIndex].Y = qq * _window[_fftIndex];
             _fftIndex++;
@@ -294,6 +363,66 @@ namespace OpenTuner.Wpf.Sdr
                 _fftIndex = 0;
                 ComputeFft();
             }
+        }
+
+        private void Demodulate(float ii, float qq)
+        {
+            // down-convert by the BFO offset so the wanted signal sits at DC
+            double c = Math.Cos(_ncoPhase);
+            double s = Math.Sin(_ncoPhase);
+            _ncoPhase += _ncoInc;
+            if (_ncoPhase > 2.0 * Math.PI) _ncoPhase -= 2.0 * Math.PI;
+
+            float mi = (float)(ii * c + qq * s);
+            float mq = (float)(-ii * s + qq * c);
+
+            // channel low-pass (one-pole)
+            _lpI += _demodLpAlpha * (mi - _lpI);
+            _lpQ += _demodLpAlpha * (mq - _lpQ);
+
+            float demod;
+            switch (_settings.DemodMode)
+            {
+                case SdrDemodMode.AM:
+                    demod = (float)Math.Sqrt(_lpI * _lpI + _lpQ * _lpQ);
+                    break;
+                case SdrDemodMode.LSB:
+                    demod = (_lpI + _lpQ) * 0.5f;
+                    break;
+                default: // USB
+                    demod = (_lpI - _lpQ) * 0.5f;
+                    break;
+            }
+
+            // decimate to the audio rate
+            _decAccum += demod;
+            _decCount++;
+            if (_decCount < _decimation)
+                return;
+
+            float audio = _decAccum / _decCount;
+            _decAccum = 0f;
+            _decCount = 0;
+
+            // de-emphasis (optional)
+            if (_deemphAlpha > 0f)
+            {
+                _deemphState += _deemphAlpha * (audio - _deemphState);
+                audio = _deemphState;
+            }
+
+            // audio low-pass
+            _audioLp += _audioLpAlpha * (audio - _audioLp);
+            audio = _audioLp;
+
+            // DC block (high-pass)
+            _dcBlockState += _dcAlpha * (audio - _dcBlockState);
+            audio -= _dcBlockState;
+
+            // compensate AM offset and scale
+            audio *= _settings.DemodMode == SdrDemodMode.AM ? 4f : 2f;
+
+            _audio.Write(audio);
         }
 
         private void ComputeFft()

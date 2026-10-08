@@ -4,6 +4,7 @@ using System.Drawing.Printing;
 using System.Linq;
 using System.Runtime.ConstrainedExecution;
 using System.Text;
+using System.Threading;
 using System.Threading.Tasks;
 using MQTTnet;
 using MQTTnet.Client;
@@ -24,8 +25,16 @@ namespace opentuner.ExtraFeatures.MqttClient
         private string _cmdtopic = "cmd/opentuner/";
 
         private IMqttClient _mqtt_client;
+        private MqttClientOptions _options;
+
+        private readonly object _reconnect_lock = new object();
+        private bool _reconnecting = false;
+        private bool _disposed = false;
+        private int _reconnect_attempt = 0;
 
         public event NewMqttMessage OnMqttMessageReceived;
+
+        public bool IsConnected => _mqtt_client != null && _mqtt_client.IsConnected;
 
         private MqttManagerSettings _settings;
         private SettingsManager<MqttManagerSettings> _settingsManager;
@@ -34,6 +43,7 @@ namespace opentuner.ExtraFeatures.MqttClient
         {
             _settings = new MqttManagerSettings();
             _settingsManager = new SettingsManager<MqttManagerSettings>("mqttclient_settings");
+            _settings = _settingsManager.LoadSettings(_settings);
 
             _broker = _settings.MqttBroker;
             _broker_port = _settings.MqttPort;
@@ -47,21 +57,42 @@ namespace opentuner.ExtraFeatures.MqttClient
             _mqtt_client = factory.CreateMqttClient();
 
             // client options
-            var options = new MqttClientOptionsBuilder()
+            _options = new MqttClientOptionsBuilder()
                 .WithTcpServer(_broker, _broker_port)
                 .WithClientId(_clientid)
                 .WithCleanSession()
+                .WithKeepAlivePeriod(TimeSpan.FromSeconds(20))
                 .Build();
 
             _mqtt_client.ConnectedAsync += _mqtt_client_ConnectedAsync;
             _mqtt_client.DisconnectedAsync += _mqtt_client_DisconnectedAsync;
             _mqtt_client.ApplicationMessageReceivedAsync += _mqtt_client_ApplicationMessageReceivedAsync;
 
-            var connectResult =  _mqtt_client.ConnectAsync(options);
+            Connect();
+        }
+
+        public void Connect()
+        {
+            Task.Run(async () =>
+            {
+                try
+                {
+                    if (!_mqtt_client.IsConnected)
+                    {
+                        await _mqtt_client.ConnectAsync(_options);
+                    }
+                }
+                catch (Exception ex)
+                {
+                    Log.Warning("Mqtt connect failed: " + ex.Message);
+                    StartReconnectLoop();
+                }
+            });
         }
 
         public void Disconnect()
         {
+            _disposed = true;
             try
             {
                 _mqtt_client.DisconnectAsync();
@@ -69,6 +100,51 @@ namespace opentuner.ExtraFeatures.MqttClient
             catch (Exception ex)
             {
             }
+        }
+
+        private void StartReconnectLoop()
+        {
+            lock (_reconnect_lock)
+            {
+                if (_reconnecting || _disposed)
+                    return;
+
+                _reconnecting = true;
+            }
+
+            Task.Run(async () =>
+            {
+                try
+                {
+                    while (!_disposed && !_mqtt_client.IsConnected)
+                    {
+                        // exponential backoff capped at 30s
+                        int delay = Math.Min(30, (int)Math.Pow(2, Math.Min(_reconnect_attempt, 5)));
+                        _reconnect_attempt++;
+
+                        Log.Information("Mqtt reconnecting in " + delay + "s...");
+
+                        for (int i = 0; i < delay && !_disposed; i++)
+                            await Task.Delay(1000);
+
+                        if (_disposed)
+                            break;
+
+                        try
+                        {
+                            await _mqtt_client.ConnectAsync(_options);
+                        }
+                        catch (Exception ex)
+                        {
+                            Log.Warning("Mqtt reconnect attempt failed: " + ex.Message);
+                        }
+                    }
+                }
+                finally
+                {
+                    lock (_reconnect_lock) { _reconnecting = false; }
+                }
+            });
         }
 
         public void SendProperties(OTSourceData properties, string ChildTopic)
@@ -83,21 +159,28 @@ namespace opentuner.ExtraFeatures.MqttClient
 
         public void SendMqttStatus(string topic, string value)
         {
-                var message = new MqttApplicationMessageBuilder()
-                .WithTopic(_maintopic + topic)
-                .WithPayload(value)
-                .WithQualityOfServiceLevel(MQTTnet.Protocol.MqttQualityOfServiceLevel.AtLeastOnce)
-                .Build();
+            if (!IsConnected)
+                return;
 
-                Task.Run(async () =>
-                {
-                    await _mqtt_client.PublishAsync(message);
-                });
+            var message = new MqttApplicationMessageBuilder()
+            .WithTopic(_maintopic + topic)
+            .WithPayload(value)
+            .WithQualityOfServiceLevel(MQTTnet.Protocol.MqttQualityOfServiceLevel.AtLeastOnce)
+            .Build();
+
+            Task.Run(async () =>
+            {
+                try { await _mqtt_client.PublishAsync(message); }
+                catch (Exception ex) { Log.Warning("Mqtt publish failed: " + ex.Message); }
+            });
         }
 
         // this requires a full topic - currently only used for pluto commands
         public async Task SendMqttCommand(string topic, string value)
         {
+            if (!IsConnected)
+                return;
+
             var message = new MqttApplicationMessageBuilder()
             .WithTopic(topic)
             .WithPayload(value)
@@ -119,19 +202,26 @@ namespace opentuner.ExtraFeatures.MqttClient
         private Task _mqtt_client_DisconnectedAsync(MqttClientDisconnectedEventArgs arg)
         {
             Log.Information("Mqtt Disconnected");
+            if (!_disposed)
+                StartReconnectLoop();
             return Task.CompletedTask;
         }
 
         private async Task _mqtt_client_ConnectedAsync(MqttClientConnectedEventArgs arg)
         {
             Log.Information("Mqtt Connected");
+            _reconnect_attempt = 0;
 
             // subscribe to mqtt commands
-            await _mqtt_client.SubscribeAsync(_cmdtopic + "tuner1/#");
-            await _mqtt_client.SubscribeAsync(_cmdtopic + "tuner2/#");
-
-            // subscribe to f5oeoe firmware topics (if available)
-            // await _mqtt_client.SubscribeAsync("dt/pluto/#");
+            try
+            {
+                await _mqtt_client.SubscribeAsync(_cmdtopic + "tuner1/#");
+                await _mqtt_client.SubscribeAsync(_cmdtopic + "tuner2/#");
+            }
+            catch (Exception ex)
+            {
+                Log.Warning("Mqtt subscribe failed: " + ex.Message);
+            }
 
             return;
         }

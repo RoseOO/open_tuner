@@ -201,7 +201,7 @@ namespace opentuner.MediaPlayers.FFMPEG
             ts_data_queue = TSDataQueue;
         }
 
-        public override bool CanRead => throw new NotImplementedException();
+        public override bool CanRead => !end && ts_data_queue != null;
 
         public override bool CanSeek { get { return false; } }
 
@@ -258,7 +258,7 @@ namespace opentuner.MediaPlayers.FFMPEG
                         else
                         {
                             ts_sync = true;
-                            buffer[counter++] = raw_ts_data;
+                            buffer[offset + counter++] = raw_ts_data;
                         }
                     }
                     else

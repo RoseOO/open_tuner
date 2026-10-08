@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.Windows;
 using System.Windows.Controls;
@@ -29,7 +29,7 @@ namespace OpenTuner.Wpf.Dialogs
         {
             _presets = presets;
 
-            Title = "Frequency Presets";
+            Title = LocalizationManager.Get("dt.presets");
             Width = 640; Height = 560;
             WindowStartupLocation = WindowStartupLocation.CenterOwner;
             Background = (Brush)Application.Current.FindResource("WindowBackground");
@@ -80,14 +80,23 @@ namespace OpenTuner.Wpf.Dialogs
             DockPanel.SetDock(buttons, Dock.Bottom);
 
             var bp = new StackPanel { Orientation = Orientation.Horizontal };
-            var add = new Button { Content = "Add", Width = 90 };
+            var add = new Button { Content = LocalizationManager.Get("btn.add"), Width = 90 };
             add.Click += (s, e) => AddRow(new StoredFrequency { Name = "New", Frequency = 10491500, Offset = 9750000, SymbolRate = 1500 });
-            var save = new Button { Content = "Save", Width = 90, Margin = new Thickness(10, 0, 0, 0) };
+            var import = new Button { Content = "Import...", Width = 90, Margin = new Thickness(10, 0, 0, 0) };
+            import.Click += (s, e) => ImportPresets();
+            var export = new Button { Content = "Export...", Width = 90, Margin = new Thickness(10, 0, 0, 0) };
+            export.Click += (s, e) => ExportPresets();
+            var fromBandplan = new Button { Content = "From bandplan", Width = 120, Margin = new Thickness(10, 0, 0, 0) };
+            fromBandplan.Click += (s, e) => ImportBandplan();
+            var save = new Button { Content = LocalizationManager.Get("btn.save"), Width = 90, Margin = new Thickness(10, 0, 0, 0) };
             save.SetResourceReference(FrameworkElement.StyleProperty, "PrimaryButton");
             save.Click += (s, e) => { Commit(); DialogResult = true; Close(); };
-            var cancel = new Button { Content = "Cancel", Width = 90, Margin = new Thickness(10, 0, 0, 0) };
+            var cancel = new Button { Content = LocalizationManager.Get("btn.cancel"), Width = 90, Margin = new Thickness(10, 0, 0, 0) };
             cancel.Click += (s, e) => { DialogResult = false; Close(); };
             bp.Children.Add(add);
+            bp.Children.Add(import);
+            bp.Children.Add(export);
+            bp.Children.Add(fromBandplan);
             bp.Children.Add(save);
             bp.Children.Add(cancel);
             buttons.Child = bp;
@@ -148,6 +157,88 @@ namespace OpenTuner.Wpf.Dialogs
                 if (byte.TryParse(r.RFInput.Text, out byte rf)) p.RFInput = rf;
                 _presets.Add(p);
             }
+        }
+
+        private void ReloadRows()
+        {
+            _rows.Children.Clear();
+            _rowList.Clear();
+            foreach (StoredFrequency p in _presets)
+                AddRow(p);
+        }
+
+        private void ImportPresets()
+        {
+            var dlg = new Microsoft.Win32.OpenFileDialog
+            {
+                Filter = "JSON files (*.json)|*.json|All files (*.*)|*.*"
+            };
+            if (dlg.ShowDialog() != true)
+                return;
+
+            try
+            {
+                var list = Newtonsoft.Json.JsonConvert.DeserializeObject<List<StoredFrequency>>(System.IO.File.ReadAllText(dlg.FileName));
+                if (list == null)
+                    return;
+
+                _presets.Clear();
+                _presets.AddRange(list);
+                ReloadRows();
+                ToastService.Show("Imported " + list.Count + " preset(s)", ToastKind.Success, 3);
+            }
+            catch (Exception ex)
+            {
+                MessageBox.Show("Import failed: " + ex.Message, "Frequency Presets");
+            }
+        }
+
+        private void ExportPresets()
+        {
+            Commit();
+
+            var dlg = new Microsoft.Win32.SaveFileDialog
+            {
+                Filter = "JSON files (*.json)|*.json|All files (*.*)|*.*",
+                FileName = "frequency_presets.json"
+            };
+            if (dlg.ShowDialog() != true)
+                return;
+
+            try
+            {
+                System.IO.File.WriteAllText(dlg.FileName, Newtonsoft.Json.JsonConvert.SerializeObject(_presets, Newtonsoft.Json.Formatting.Indented));
+                ToastService.Show("Exported " + _presets.Count + " preset(s)", ToastKind.Success, 3);
+            }
+            catch (Exception ex)
+            {
+                MessageBox.Show("Export failed: " + ex.Message, "Frequency Presets");
+            }
+        }
+
+        private void ImportBandplan()
+        {
+            var bandplan = opentuner.Utilities.Bandplan.Load(opentuner.Utilities.Bandplan.DefaultPath);
+            if (bandplan.Channels.Count == 0)
+            {
+                MessageBox.Show("No bandplan loaded (extra/bandplan.xml missing?).", "Frequency Presets");
+                return;
+            }
+
+            foreach (var c in bandplan.Channels)
+            {
+                _presets.Add(new StoredFrequency
+                {
+                    Name = string.IsNullOrEmpty(c.Name) ? c.RxFreqMHz.ToString("0.####") : c.Name,
+                    Frequency = (uint)Math.Round(c.RxFreqMHz * 1000.0),
+                    Offset = 9750000,
+                    SymbolRate = c.SymbolRate,
+                    RFInput = 0
+                });
+            }
+
+            ReloadRows();
+            ToastService.Show("Added " + bandplan.Channels.Count + " bandplan channel(s)", ToastKind.Success, 3);
         }
     }
 }

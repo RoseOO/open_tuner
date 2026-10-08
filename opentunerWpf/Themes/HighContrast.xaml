@@ -1,0 +1,40 @@
+<ResourceDictionary xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+                    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+
+    <Color x:Key="WindowBackgroundColor">#FF000000</Color>
+    <Color x:Key="SurfaceBackgroundColor">#FF000000</Color>
+    <Color x:Key="SurfaceAltColor">#FF0A0A0A</Color>
+    <Color x:Key="BorderColor">#FFFFFFFF</Color>
+    <Color x:Key="TextPrimaryColor">#FFFFFFFF</Color>
+    <Color x:Key="TextSecondaryColor">#FFFFFF00</Color>
+    <Color x:Key="AccentColor">#FFFFFF00</Color>
+    <Color x:Key="AccentHoverColor">#FFFFFF66</Color>
+    <Color x:Key="AccentPressedColor">#FFFFFF00</Color>
+    <Color x:Key="ButtonBackgroundColor">#FF000000</Color>
+    <Color x:Key="ButtonHoverColor">#FF222200</Color>
+    <Color x:Key="ButtonPressedColor">#FF333300</Color>
+    <Color x:Key="VideoBackgroundColor">#FF000000</Color>
+    <Color x:Key="MenuBackgroundColor">#FF000000</Color>
+    <Color x:Key="InputBackgroundColor">#FF000000</Color>
+    <Color x:Key="InputBorderColor">#FFFFFFFF</Color>
+    <Color x:Key="HighlightColor">#FF333300</Color>
+
+    <SolidColorBrush x:Key="WindowBackground" Color="{StaticResource WindowBackgroundColor}" />
+    <SolidColorBrush x:Key="SurfaceBackground" Color="{StaticResource SurfaceBackgroundColor}" />
+    <SolidColorBrush x:Key="SurfaceAlt" Color="{StaticResource SurfaceAltColor}" />
+    <SolidColorBrush x:Key="Border" Color="{StaticResource BorderColor}" />
+    <SolidColorBrush x:Key="TextPrimary" Color="{StaticResource TextPrimaryColor}" />
+    <SolidColorBrush x:Key="TextSecondary" Color="{StaticResource TextSecondaryColor}" />
+    <SolidColorBrush x:Key="Accent" Color="{StaticResource AccentColor}" />
+    <SolidColorBrush x:Key="AccentHover" Color="{StaticResource AccentHoverColor}" />
+    <SolidColorBrush x:Key="AccentPressed" Color="{StaticResource AccentPressedColor}" />
+    <SolidColorBrush x:Key="ButtonBackground" Color="{StaticResource ButtonBackgroundColor}" />
+    <SolidColorBrush x:Key="ButtonHover" Color="{StaticResource ButtonHoverColor}" />
+    <SolidColorBrush x:Key="ButtonPressed" Color="{StaticResource ButtonPressedColor}" />
+    <SolidColorBrush x:Key="VideoBackground" Color="{StaticResource VideoBackgroundColor}" />
+    <SolidColorBrush x:Key="MenuBackground" Color="{StaticResource MenuBackgroundColor}" />
+    <SolidColorBrush x:Key="InputBackground" Color="{StaticResource InputBackgroundColor}" />
+    <SolidColorBrush x:Key="InputBorder" Color="{StaticResource InputBorderColor}" />
+    <SolidColorBrush x:Key="Highlight" Color="{StaticResource HighlightColor}" />
+
+</ResourceDictionary>

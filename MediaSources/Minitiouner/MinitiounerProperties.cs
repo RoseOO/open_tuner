@@ -301,6 +301,25 @@ namespace opentuner.MediaSources.Minitiouner
             if (key == "media_controls_2")
                 tuner = 1;
 
+            // guard against button presses after a disconnect / before configuration
+            if (tuner < 0 || tuner > 1)
+                return;
+
+            if (_media_player == null || tuner >= _media_player.Count || _media_player[tuner] == null)
+                return;
+
+            try
+            {
+                DispatchMediaButton(tuner, function);
+            }
+            catch (Exception ex)
+            {
+                Log.Warning("Media button action failed (" + key + "/" + function + "): " + ex.Message);
+            }
+        }
+
+        private void DispatchMediaButton(int tuner, int function)
+        {
             switch (function)
             {
                 case 0: // mute
@@ -632,6 +651,7 @@ namespace opentuner.MediaSources.Minitiouner
             source_data.mer = mer;
             source_data.db_margin = dbmargin;
             source_data.service_name = _tuner1_properties.GetValue("service_name");
+            try { source_data.service_provider = _tuner1_properties.GetValue("service_name_provider"); } catch { }
             source_data.symbol_rate = (int)(new_status.T1P2_symbol_rate / 1000);
 
             if (_media_player.Count > 0)
@@ -747,6 +767,7 @@ namespace opentuner.MediaSources.Minitiouner
                 source_data_2.mer = mer2;
                 source_data_2.db_margin = dbmargin;
                 source_data_2.service_name = _tuner2_properties.GetValue("service_name");
+                try { source_data_2.service_provider = _tuner2_properties.GetValue("service_name_provider"); } catch { }
                 source_data_2.demod_locked = (new_status.T2P1_demod_status > 1);
                 source_data_2.symbol_rate = (int)(new_status.T2P1_symbol_rate / 1000);
 
@@ -1011,7 +1032,32 @@ namespace opentuner.MediaSources.Minitiouner
 
         public override void ToggleMute(int device)
         {
-            throw new NotImplementedException();
+            if (device < 0 || device >= muted.Length)
+                return;
+
+            var properties = device == 0 ? _tuner1_properties : _tuner2_properties;
+            string key = "media_controls_" + (device + 1).ToString();
+            string sliderKey = "volume_slider_" + (device + 1).ToString();
+
+            if (_media_player == null || device >= _media_player.Count || _media_player[device] == null)
+                return;
+
+            if (!muted[device])
+            {
+                preMute[device] = _media_player[device].GetVolume();
+                _media_player[device].SetVolume(0);
+                properties?.UpdateValue(sliderKey, "0");
+                _settings.DefaultVolume[device] = (byte)preMute[device];
+                _settings.DefaultMuted[device] = muted[device] = true;
+                properties?.UpdateMuteButtonColor(key, Color.PaleVioletRed);
+            }
+            else
+            {
+                _media_player[device].SetVolume(preMute[device]);
+                properties?.UpdateValue(sliderKey, preMute[device].ToString());
+                _settings.DefaultMuted[device] = muted[device] = false;
+                properties?.UpdateMuteButtonColor(key, Color.Transparent);
+            }
         }
 
         public override int GetVolume(int device)

@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Net;
 using System.Net.Sockets;
 using System.Text;
@@ -21,7 +21,7 @@ namespace OpenTuner.Wpf.Dialogs
 
         public BroadcastListenerWindow()
         {
-            Title = "PicoTuner (WH) Broadcast Listener";
+            Title = LocalizationManager.Get("dt.broadcast");
             Width = 620; Height = 480;
             WindowStartupLocation = WindowStartupLocation.CenterOwner;
             Background = (Brush)Application.Current.FindResource("WindowBackground");
@@ -99,7 +99,7 @@ namespace OpenTuner.Wpf.Dialogs
 
             var bottom = new Border { Padding = new Thickness(16, 10, 16, 10) };
             DockPanel.SetDock(bottom, Dock.Bottom);
-            var close = new Button { Content = "Close", Width = 90, HorizontalAlignment = HorizontalAlignment.Right };
+            var close = new Button { Content = LocalizationManager.Get("btn.close"), Width = 90, HorizontalAlignment = HorizontalAlignment.Right };
             close.SetResourceReference(FrameworkElement.StyleProperty, "PrimaryButton");
             close.Click += (s, e) => Close();
             bottom.Child = close;

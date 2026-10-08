@@ -15,9 +15,10 @@ namespace OpenTuner.Wpf.Sdr
         private ComboBox comboSampleRate;
         private TextBox txtCenterMhz, txtGainDb, txtPpm, txtMinDb, txtMaxDb, txtLnbLo, txtBroadbandSr, txtNarrowbandSr;
         private TextBox txtSweepSpan, txtSweepCenter, txtSweepDwell, txtRolloff;
-        private CheckBox chkAgc, chkFollowLnb, chkSweep, chkEstimateSr, chkAudio;
+        private CheckBox chkAgc, chkFollowLnb, chkSweep, chkEstimateSr, chkAudio, chkAudioFilter;
         private ComboBox comboDemod;
         private TextBox txtVolume;
+        private TextBox txtAudioFilter, txtDeemph;
         private ComboBox comboFft;
 
         public SdrSettingsWindow(SdrSettings settings)
@@ -143,6 +144,15 @@ namespace OpenTuner.Wpf.Sdr
 
             txtVolume = new TextBox();
             AddRow("Audio volume", txtVolume);
+
+            chkAudioFilter = new CheckBox { Content = "Post-demod audio low-pass" };
+            AddRow("Audio filter", chkAudioFilter);
+
+            txtAudioFilter = new TextBox();
+            AddRow("Audio filter cutoff (Hz)", txtAudioFilter);
+
+            txtDeemph = new TextBox();
+            AddRow("De-emphasis (us, 0=off)", txtDeemph);
         }
 
         private static double[] RatesForSource(int src)
@@ -207,6 +217,9 @@ namespace OpenTuner.Wpf.Sdr
             chkAudio.IsChecked = _settings.AudioEnabled;
             comboDemod.SelectedIndex = (int)_settings.DemodMode;
             txtVolume.Text = _settings.AudioVolume.ToString();
+            chkAudioFilter.IsChecked = _settings.AudioFilterEnabled;
+            txtAudioFilter.Text = _settings.AudioFilterHz.ToString();
+            txtDeemph.Text = _settings.DeemphasisUs.ToString();
         }
 
         private static double ParseDouble(string s, double fallback)
@@ -253,6 +266,9 @@ namespace OpenTuner.Wpf.Sdr
             _settings.AudioEnabled = chkAudio.IsChecked == true;
             _settings.DemodMode = (SdrDemodMode)comboDemod.SelectedIndex;
             _settings.AudioVolume = ParseInt(txtVolume.Text, 70);
+            _settings.AudioFilterEnabled = chkAudioFilter.IsChecked == true;
+            _settings.AudioFilterHz = ParseInt(txtAudioFilter.Text, 3000);
+            _settings.DeemphasisUs = ParseInt(txtDeemph.Text, 0);
 
             DialogResult = true;
             Close();

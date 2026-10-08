@@ -217,6 +217,9 @@ namespace opentuner.MediaSources.WinterHill
                     case "$12":
                         mm.rx[receiver].mer = dt[1];
                         break;
+                    case "$11":
+                        mm.rx[receiver].ber = dt[1];
+                        break;
                     case "$13":
                         mm.rx[receiver].service_name = dt[1]; 
                         break;

@@ -35,8 +35,9 @@ namespace opentuner.Utilities
         {
             this.port = port;
             udpClient = new UdpClient(port);
+            try { udpClient.Client.ReceiveBufferSize = 4 * 1024 * 1024; } catch { }
             isListening = false;
-            listenThread = new Thread(ListenForData);
+            listenThread = new Thread(ListenForData) { IsBackground = true };
         }
 
         public UDPClient(int port, int ID)
@@ -44,8 +45,9 @@ namespace opentuner.Utilities
             _id = ID;
             this.port = port;
             udpClient = new UdpClient(port);
+            try { udpClient.Client.ReceiveBufferSize = 4 * 1024 * 1024; } catch { }
             isListening = false;
-            listenThread = new Thread(ListenForData);
+            listenThread = new Thread(ListenForData) { IsBackground = true };
         }
 
 

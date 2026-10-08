@@ -44,15 +44,12 @@ namespace opentuner
         {
             int timeout = 0;
 
-            // wait for next data
+            // wait for a minimum amount of data (or end)
             while (ts_data_queue.Count < 1010)
             {
-                if (end == true)
-                {
+                if (end)
                     return 0;
-                }
-                //Log.Information("Waiting: " + timeout.ToString());
-                // if we haven't received anything within a few seconds then most likely won't get anything
+
                 if (timeout > 500000)
                 {
                     Log.Information("TSStreamMediaInput : Read Timeout");
@@ -63,58 +60,33 @@ namespace opentuner
                 timeout += 50;
             }
 
-            int queue_count = ts_data_queue.Count; 
+            int available = ts_data_queue.Count;
+            int want = (int)Math.Min((long)len, (long)available);
+            if (want <= 0)
+                return 0;
 
-            if (queue_count > 0)
+            // dequeue the whole block in one locked copy (fast path)
+            byte[] chunk = ts_data_queue.DequeueBytes(want);
+
+            int start = 0;
+            if (!ts_sync)
             {
-                //RawTSData raw_ts_data = null;
-                byte raw_ts_data = 0;
+                // drop leading bytes until the first 0x47 sync byte
+                while (start < chunk.Length && chunk[start] != 0x47)
+                    start++;
 
-                uint buildLen = len;
-                if (queue_count < buildLen)
-                {
-                    buildLen = Convert.ToUInt32(queue_count);
-                }
+                if (start >= chunk.Length)
+                    return 0;   // no sync byte in this block
 
-                byte[] vlc_data = new byte[buildLen];
-
-                int counter = 0;
-
-                while (counter < buildLen)
-                {
-                    //if (ts_data_queue.TryDequeue(out raw_ts_data))
-                    //{
-                    if (ts_data_queue.Count > 0)
-                    {
-                        raw_ts_data = ts_data_queue.Dequeue();
-
-                        //vlc_data[counter++] = raw_ts_data.rawTSData[0];
-
-                        if (ts_sync == false && raw_ts_data != 0x47)
-                        {
-                            buildLen--;
-                            continue;
-                        }
-                        else
-                        {
-                            ts_sync = true;
-                            vlc_data[counter++] = raw_ts_data;
-                        }
-                    }
-                    else
-                    {
-                        Log.Information("Warning: Failing to dequeue, nothing to dequeue: TSStream");
-                    }
-                    //}
-                }
-
-                Marshal.Copy(vlc_data.ToArray(), 0, buf, vlc_data.Length);
-                return vlc_data.Length;
-
+                ts_sync = true;
             }
 
-            Log.Information("TS StreamInput: Shouldn't be here");
-            return 0;
+            int count = chunk.Length - start;
+            if (count <= 0)
+                return 0;
+
+            Marshal.Copy(chunk, start, buf, count);
+            return count;
         }
 
         public override bool Seek(ulong offset)

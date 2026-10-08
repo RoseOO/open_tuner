@@ -48,18 +48,34 @@ namespace opentuner
 
             lock (syncRoot)
             {
-                int bytesToAdd = items.Length;
-                int sourceIndex = 0;
+                int len = items.Length;
 
-                while (bytesToAdd > 0)
+                // if the incoming block is bigger than the whole buffer, keep the tail
+                if (len >= capacity)
                 {
-                    int bytesToCopy = Math.Min(capacity - Count, bytesToAdd);
-                    Array.Copy(items, sourceIndex, buffer, head, bytesToCopy);
-                    head = (head + bytesToCopy) % capacity;
-                    Count += bytesToCopy;
-                    sourceIndex += bytesToCopy;
-                    bytesToAdd -= bytesToCopy;
+                    Array.Copy(items, len - capacity, buffer, 0, capacity);
+                    head = 0;
+                    tail = 0;
+                    Count = capacity;
+                    return;
                 }
+
+                // make room by dropping the oldest bytes (never blocks / never loops)
+                int free = capacity - Count;
+                if (len > free)
+                {
+                    int drop = len - free;
+                    tail = (tail + drop) % capacity;
+                    Count -= drop;
+                }
+
+                int first = Math.Min(len, capacity - head);
+                Array.Copy(items, 0, buffer, head, first);
+                if (len > first)
+                    Array.Copy(items, first, buffer, 0, len - first);
+
+                head = (head + len) % capacity;
+                Count += len;
             }
         }
 

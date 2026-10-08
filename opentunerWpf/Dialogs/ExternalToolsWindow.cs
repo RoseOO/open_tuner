@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.Windows;
 using System.Windows.Controls;
@@ -25,7 +25,7 @@ namespace OpenTuner.Wpf.Dialogs
         {
             _tools = tools;
 
-            Title = "External Tools";
+            Title = LocalizationManager.Get("dt.externaltools");
             Width = 720; Height = 520;
             WindowStartupLocation = WindowStartupLocation.CenterOwner;
             Background = (Brush)Application.Current.FindResource("WindowBackground");
@@ -92,12 +92,12 @@ namespace OpenTuner.Wpf.Dialogs
             DockPanel.SetDock(buttons, Dock.Bottom);
 
             var bp = new StackPanel { Orientation = Orientation.Horizontal };
-            var add = new Button { Content = "Add", Width = 90 };
+            var add = new Button { Content = LocalizationManager.Get("btn.add"), Width = 90 };
             add.Click += (s, e) => AddRow(new ExternalTool { ToolName = "New Tool" });
-            var save = new Button { Content = "Save", Width = 90, Margin = new Thickness(10, 0, 0, 0) };
+            var save = new Button { Content = LocalizationManager.Get("btn.save"), Width = 90, Margin = new Thickness(10, 0, 0, 0) };
             save.SetResourceReference(FrameworkElement.StyleProperty, "PrimaryButton");
             save.Click += (s, e) => { Commit(); DialogResult = true; Close(); };
-            var cancel = new Button { Content = "Cancel", Width = 90, Margin = new Thickness(10, 0, 0, 0) };
+            var cancel = new Button { Content = LocalizationManager.Get("btn.cancel"), Width = 90, Margin = new Thickness(10, 0, 0, 0) };
             cancel.Click += (s, e) => { DialogResult = false; Close(); };
             bp.Children.Add(add);
             bp.Children.Add(save);

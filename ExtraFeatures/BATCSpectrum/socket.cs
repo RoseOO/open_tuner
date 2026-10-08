@@ -24,6 +24,11 @@ namespace opentuner
 
         public event EventHandler<bool> ConnectionStatusChanged;
 
+        private volatile bool _stopping = false;
+        private int _attempt = 0;
+        private System.Timers.Timer _reconnectTimer;
+        private readonly object _lock = new object();
+
         public socket()
         {
             connected = false;
@@ -31,19 +36,67 @@ namespace opentuner
 
         public void start()
         {
-            if (!connected)
+            _stopping = false;
+            Connect();
+        }
+
+        private void Connect()
+        {
+            if (_stopping)
+                return;
+
+            if (connected)
+                return;
+
+            try
             {
-                Log.Information(connected.ToString());
-                Log.Information("Websocket: QO_Spectrum: Try connect..\n");
+                Log.Information("Websocket: QO_Spectrum: Try connect..");
 
-                ws = new WebSocket("wss://eshail.batc.org.uk/wb/fft", "fft_m0dtslivetune");
+                lock (_lock)
+                {
+                    try { ws?.Close(); } catch { }
 
-                ws.OnMessage += (ss, ee) => NewData(ee.RawData);
-                ws.OnOpen += Ws_OnOpen;
-                ws.OnClose += Ws_OnClose; 
-                ws.OnError += Ws_OnError;
+                    ws = new WebSocket("wss://eshail.batc.org.uk/wb/fft", "fft_m0dtslivetune");
 
-                ws.ConnectAsync();
+                    ws.OnMessage += (ss, ee) => NewData(ee.RawData);
+                    ws.OnOpen += Ws_OnOpen;
+                    ws.OnClose += Ws_OnClose;
+                    ws.OnError += Ws_OnError;
+
+                    ws.ConnectAsync();
+                }
+            }
+            catch (Exception ex)
+            {
+                Log.Warning("Websocket: QO_Spectrum: connect failed: " + ex.Message);
+                ScheduleReconnect();
+            }
+        }
+
+        private void ScheduleReconnect()
+        {
+            if (_stopping)
+                return;
+
+            lock (_lock)
+            {
+                // don't stack reconnect timers
+                if (_reconnectTimer != null && _reconnectTimer.Enabled)
+                    return;
+
+                int delay = Math.Min(30, (int)Math.Pow(2, Math.Min(_attempt, 5)));
+                _attempt++;
+
+                Log.Information("Websocket: QO_Spectrum: reconnecting in " + delay + "s");
+
+                _reconnectTimer = new System.Timers.Timer(delay * 1000) { AutoReset = false };
+                _reconnectTimer.Elapsed += (s, e) =>
+                {
+                    try { _reconnectTimer?.Dispose(); } catch { }
+                    _reconnectTimer = null;
+                    if (!_stopping) Connect();
+                };
+                _reconnectTimer.Start();
             }
         }
 
@@ -51,33 +104,40 @@ namespace opentuner
         {
             connected = false;
             Log.Information("Websocket: QO_Spectrum: Connection Closed");
-
             ConnectionStatusChanged?.Invoke(this, connected);
+            ScheduleReconnect();
         }
 
         private void Ws_OnOpen(object sender, EventArgs e)
         {
-            connected = true; 
-            Log.Information("Websocket: QO_Spectrum: Connected.\n");
-
+            connected = true;
+            _attempt = 0;
+            Log.Information("Websocket: QO_Spectrum: Connected.");
             ConnectionStatusChanged?.Invoke(this, connected);
             lastdata = DateTime.Now;
-
         }
 
         private void Ws_OnError(object sender, ErrorEventArgs e)
         {
-            Log.Information("Websocket: QO_Spectrum: Error" + e.ToString());
+            Log.Information("Websocket: QO_Spectrum: Error " + e.Message);
+            // OnError is usually followed by OnClose, but schedule here too in
+            // case it isn't, so we always re-establish.
+            ScheduleReconnect();
         }
 
         public void stop()
         {
-            if (connected)
+            _stopping = true;
+
+            lock (_lock)
             {
-                ws?.Close();
+                try { _reconnectTimer?.Stop(); } catch { }
+                try { _reconnectTimer?.Dispose(); } catch { }
+                _reconnectTimer = null;
+
+                try { ws?.Close(); } catch { }
                 connected = false;
             }
-
         }
 
         private void NewData(byte[] data)
@@ -97,10 +157,7 @@ namespace opentuner
                 fft_data[n] = BitConverter.ToUInt16(buf, 0);
                 n++;
             }
-            callback(fft_data);
-            //Log.Information(".");
-
+            callback?.Invoke(fft_data);
         }
-
     }
 }

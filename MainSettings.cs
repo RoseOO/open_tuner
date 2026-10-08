@@ -29,6 +29,19 @@ namespace opentuner
         // future
         public bool enable_plutoctrl_checkbox = false;
 
+        // ----- recording -----
+        // {callsign} {service} {freq} {sr} {date} {time} {tuner} are replaced at record start.
+        public string record_filename_template = "{callsign}_{service}_{freq}_{date}_{time}";
+        public bool record_sidecar = true;      // write a .json sidecar with signal metadata
+        public int record_max_mb = 0;           // 0 = unlimited, auto-split size
+        public int record_max_minutes = 0;      // 0 = unlimited, auto-split duration
+
+        // ----- snapshots -----
+        public int snapshot_interval_seconds = 0;   // 0 = disabled
+
+        // ----- layout -----
+        public string layout_preset = "2-side";     // "1", "2-side", "2-stack", "4-quad"
+
         public int default_source = 0;
         public bool mute_at_startup = true;
 
@@ -50,5 +63,13 @@ namespace opentuner
         public int gui_window_y = -1;
         public int gui_window_state = 0;
         public int gui_main_splitter_position = 436;
+
+        // WPF UI language (see opentunerWpf LocalizationManager.Languages)
+        public string language = "en";
+
+        // QSO logging defaults
+        public string station_callsign = "M1RXO";
+        public string qso_satellite = "QO-100";
+        public string qso_prop_mode = "SAT";
     }
 }

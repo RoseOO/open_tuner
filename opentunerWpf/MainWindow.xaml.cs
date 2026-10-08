@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Windows;
@@ -33,13 +33,28 @@ namespace OpenTuner.Wpf
 
         private readonly List<OTMediaPlayer> _players = new List<OTMediaPlayer>();
         private readonly List<ContentControl> _videoCells = new List<ContentControl>();
-        private readonly List<TextBlock> _videoInfo = new List<TextBlock>();
-        private readonly List<TextBlock> _videoVolume = new List<TextBlock>();
         private readonly List<FrameworkElement> _videoViews = new List<FrameworkElement>();
+
+        // per-video overlay elements (max 4 tuners)
+        private readonly TextBlock[] _ovTitle = new TextBlock[4];
+        private readonly TextBlock[] _ovQrz = new TextBlock[4];
+        private readonly TextBlock[] _ovStream = new TextBlock[4];
+        private readonly TextBlock[] _ovCodec = new TextBlock[4];
+        private readonly TextBlock[] _ovState = new TextBlock[4];
+        private readonly TextBlock[] _ovVolume = new TextBlock[4];
+        private readonly string[] _ovLastService = new string[4];
+
+        private readonly Grid[] _videoOverlays = new Grid[4];         // the WPF content drawn on top of each VLC view
+        private readonly Border[] _ovInfoBorder = new Border[4];
+        private readonly StackPanel[] _ovRightStack = new StackPanel[4];
+        private readonly Border[] _ovInfoButton = new Border[4];
+        private readonly bool[] _overlayHidden = new bool[4];
+        private int _soloFocus = -1;                                   // feed index shown fullscreen, or -1
 
         private bool _stacked;
         private bool _fullscreen;
         private int _focusedVideo = -1;
+        private string _layoutPreset = "2-side";
         private readonly List<TSRecorder> _recorders = new List<TSRecorder>();
         private readonly List<TSUdpStreamer> _streamers = new List<TSUdpStreamer>();
         private PropertyPanelControl _propertyPanel;
@@ -49,6 +64,19 @@ namespace OpenTuner.Wpf
         private QuickTuneControl _quickTune;
         private DATVReporter _datv;
         private OpenTuner.Wpf.Dialogs.BroadcastListenerWindow _broadcastWindow;
+
+        private opentuner.ExtraFeatures.QRZ.QrzClient _qrzClient;
+        private opentuner.ExtraFeatures.QRZ.QrzSettings _qrzSettings;
+
+        private string _lastServiceName = "";
+        private System.Windows.Threading.DispatcherTimer _statusTimer;
+        private System.Windows.Threading.DispatcherTimer _snapshotTimer;
+        private SignalGraphControl _signalGraph;
+
+        private bool _lastLockState = false;
+        private bool _lastRecState = false;
+        private OTSourceData _latestData;
+        private readonly OTSourceData[] _latestByTuner = new OTSourceData[4];
 
         public MainWindow()
         {
@@ -69,7 +97,27 @@ namespace OpenTuner.Wpf
             ThemeManager.Apply(false);
             menuDarkMode.IsChecked = false;
 
+            // localization: apply the saved language, then build the language menu
+            LocalizationManager.Apply(string.IsNullOrEmpty(_settings.language) ? "en" : _settings.language);
+            BuildLanguageMenu();
+            try { Serilog.Log.Information("UI language: " + LocalizationManager.CurrentLanguage); } catch { }
+
             try { debugHost.Content = new OpenTuner.Wpf.Dialogs.LogViewControl(); } catch { }
+
+            // signal history graph
+            try
+            {
+                _signalGraph = new SignalGraphControl();
+                signalHost.Content = _signalGraph;
+
+                comboGraphWindow.Items.Add("1 min");
+                comboGraphWindow.Items.Add("2 min");
+                comboGraphWindow.Items.Add("5 min");
+                comboGraphWindow.Items.Add("10 min");
+                comboGraphWindow.Items.Add("30 min");
+                comboGraphWindow.SelectedIndex = 2;   // 5 min
+            }
+            catch { }
 
             // load sources (reusing the existing logic classes)
             try
@@ -101,6 +149,25 @@ namespace OpenTuner.Wpf
             chkDatvReporter.IsChecked = _settings.enable_datvreporter_checkbox;
             chkSdrSpectrum.IsChecked = _settings.enable_sdr_spectrum_checkbox;
 
+            // QRZ lookup settings
+            try
+            {
+                var qrzMgr = new SettingsManager<opentuner.ExtraFeatures.QRZ.QrzSettings>("qrz_settings");
+                _qrzSettings = qrzMgr.LoadSettings(new opentuner.ExtraFeatures.QRZ.QrzSettings());
+            }
+            catch { _qrzSettings = new opentuner.ExtraFeatures.QRZ.QrzSettings(); }
+            chkQrz.IsChecked = _qrzSettings.enabled;
+
+            // layout preset
+            _layoutPreset = string.IsNullOrEmpty(_settings.layout_preset) ? "2-side" : _settings.layout_preset;
+            ApplyLayoutPreset(_layoutPreset);
+
+            // toasts + status bar
+            try { ToastService.Attach(this); } catch { }
+            _statusTimer = new System.Windows.Threading.DispatcherTimer { Interval = TimeSpan.FromSeconds(1) };
+            _statusTimer.Tick += (s, e) => UpdateStatusBar();
+            _statusTimer.Start();
+
             chkBatcSpectrum.Checked += Feature_Changed;
             chkBatcSpectrum.Unchecked += Feature_Changed;
             chkBatcChat.Checked += Feature_Changed;
@@ -113,16 +180,41 @@ namespace OpenTuner.Wpf
             chkDatvReporter.Unchecked += Feature_Changed;
             chkSdrSpectrum.Checked += Feature_Changed;
             chkSdrSpectrum.Unchecked += Feature_Changed;
+            chkQrz.Checked += QrzToggled;
+            chkQrz.Unchecked += QrzToggled;
 
             Closing += (s, e) =>
             {
+                try { Serilog.Log.Information("Closing: cleanup start"); } catch { }
+                try { _statusTimer?.Stop(); } catch { }
+                try { _snapshotTimer?.Stop(); } catch { }
                 try { _propertyPanel?.Detach(); } catch { }
+                try { _batcControl?.Stop(); } catch { }
                 try { _sdrControl?.Disconnect(); } catch { }
                 try { _mqtt?.Disconnect(); } catch { }
                 try { _quickTune?.Close(); } catch { }
                 try { _datv?.Close(); } catch { }
+                try { foreach (var r in _recorders) r.Close(); } catch { }
+                try { foreach (var st in _streamers) st.Close(); } catch { }
                 try { foreach (var p in _players) p.Stop(); } catch { }
+                try { foreach (var p in _players) p.Close(); } catch { }
+                try { _connectedSource?.Close(); } catch { }
+                _connectedSource = null;
                 SaveSettings();
+
+                // make sure the process actually exits even if a stray
+                // non-background thread is still alive
+                Application.Current.Shutdown();
+
+                var killer = new System.Threading.Thread(() =>
+                {
+                    System.Threading.Thread.Sleep(1500);
+                    try { Serilog.Log.Information("Shutdown watchdog: forcing exit"); } catch { }
+                    try { Environment.Exit(0); } catch { }
+                })
+                { IsBackground = true };
+                killer.Start();
+                try { Serilog.Log.Information("Closing: cleanup done"); } catch { }
             };
 
             if (chkSdrSpectrum.IsChecked == true)
@@ -140,16 +232,106 @@ namespace OpenTuner.Wpf
 
         private void MainWindow_PreviewKeyDown(object sender, System.Windows.Input.KeyEventArgs e)
         {
+            // don't steal keys while typing in a text field
+            var focused = System.Windows.Input.Keyboard.FocusedElement as DependencyObject;
+            if (focused is TextBox || focused is PasswordBox || focused is System.Windows.Controls.Primitives.TextBoxBase)
+                return;
+
             if (e.Key == System.Windows.Input.Key.Escape && _fullscreen)
             {
                 ExitFullscreen();
                 e.Handled = true;
+                return;
             }
-            else if (e.Key == System.Windows.Input.Key.F11)
+
+            switch (e.Key)
             {
-                if (_fullscreen) ExitFullscreen(); else EnterFullscreen(-1);
-                e.Handled = true;
+                case System.Windows.Input.Key.F11:
+                    if (_fullscreen) ExitFullscreen(); else EnterFullscreen(-1);
+                    e.Handled = true;
+                    return;
+
+                case System.Windows.Input.Key.F1:
+                    new OpenTuner.Wpf.Dialogs.ShortcutsWindow { Owner = this }.ShowDialog();
+                    e.Handled = true;
+                    return;
+
+                case System.Windows.Input.Key.R:
+                    ToggleRecord(-1);
+                    e.Handled = true;
+                    return;
+
+                case System.Windows.Input.Key.S:
+                    TakeSnapshot();
+                    ToastService.Show(LocalizationManager.Get("mw.toast.snapshot"), ToastKind.Info, 2);
+                    e.Handled = true;
+                    return;
+
+                case System.Windows.Input.Key.M:
+                    try { _connectedSource?.ToggleMute(_focusedVideo < 0 ? 0 : _focusedVideo); } catch { }
+                    e.Handled = true;
+                    return;
+
+                case System.Windows.Input.Key.U:
+                    ToggleStream(-1);
+                    e.Handled = true;
+                    return;
+
+                case System.Windows.Input.Key.D1:
+                case System.Windows.Input.Key.NumPad1:
+                    FocusVideo(0); e.Handled = true; return;
+                case System.Windows.Input.Key.D2:
+                case System.Windows.Input.Key.NumPad2:
+                    FocusVideo(1); e.Handled = true; return;
+                case System.Windows.Input.Key.D3:
+                case System.Windows.Input.Key.NumPad3:
+                    FocusVideo(2); e.Handled = true; return;
+                case System.Windows.Input.Key.D4:
+                case System.Windows.Input.Key.NumPad4:
+                    FocusVideo(3); e.Handled = true; return;
             }
+        }
+
+        private void FocusVideo(int index)
+        {
+            if (index < 0 || index >= _videoViews.Count)
+                return;
+
+            ToggleFullscreen(index);
+        }
+
+        private void ToggleRecord(int index)
+        {
+            try
+            {
+                if (index < 0)
+                {
+                    bool anyOn = _recorders.Exists(r => r.record);
+                    foreach (var r in _recorders) r.record = !anyOn;
+                }
+                else if (index < _recorders.Count)
+                {
+                    _recorders[index].record = !_recorders[index].record;
+                }
+            }
+            catch { }
+        }
+
+        private void ToggleStream(int index)
+        {
+            try
+            {
+                if (index < 0)
+                {
+                    bool anyOn = _streamers.Exists(s => s.stream);
+                    foreach (var s in _streamers) s.stream = !anyOn;
+                }
+                else if (index < _streamers.Count)
+                {
+                    _streamers[index].stream = !_streamers[index].stream;
+                }
+            }
+            catch { }
         }
 
         private void ToggleFullscreen(int focus)
@@ -186,14 +368,43 @@ namespace OpenTuner.Wpf
             bottomRow.Height = new GridLength(0);
             tabsTools.Visibility = Visibility.Collapsed;
 
-            for (int i = 0; i < _videoCells.Count; i++)
-                _videoCells[i].Visibility = (focus < 0 || i == focus) ? Visibility.Visible : Visibility.Collapsed;
+            _soloFocus = focus;
+            ApplyVideoLayout();
+
+            // the VLC/Flyleaf overlay window resizes lazily after a fullscreen
+            // transition, so re-assert it on the next render pass
+            Dispatcher.BeginInvoke(new Action(() => RefreshVideoOverlays()),
+                System.Windows.Threading.DispatcherPriority.Render);
+        }
+
+        /// <summary>Re-asserts the overlay content/visibility after a layout change.</summary>
+        private void RefreshVideoOverlays()
+        {
+            try
+            {
+                for (int i = 0; i < _videoViews.Count; i++)
+                {
+                    if (!(_videoViews[i] is ContentControl vc))
+                        continue;
+
+                    bool present = _soloFocus >= 0 ? (i == _soloFocus) : (vc.Visibility == Visibility.Visible);
+                    if (!present)
+                        continue;
+
+                    if (vc.Content != _videoOverlays[i])
+                        vc.Content = _videoOverlays[i];
+                    vc.InvalidateVisual();
+                    vc.UpdateLayout();
+                }
+            }
+            catch { }
         }
 
         private void ExitFullscreen()
         {
             _fullscreen = false;
             _focusedVideo = -1;
+            _soloFocus = -1;
 
             WindowStyle = WindowStyle.SingleBorderWindow;
             WindowState = WindowState.Normal;
@@ -210,8 +421,9 @@ namespace OpenTuner.Wpf
             bottomRow.Height = new GridLength(260);
             tabsTools.Visibility = Visibility.Visible;
 
-            foreach (var c in _videoCells)
-                c.Visibility = Visibility.Visible;
+            ApplyVideoLayout();
+            Dispatcher.BeginInvoke(new Action(() => RefreshVideoOverlays()),
+                System.Windows.Threading.DispatcherPriority.Render);
         }
 
         private void FullScreen_Click(object sender, RoutedEventArgs e)
@@ -219,31 +431,153 @@ namespace OpenTuner.Wpf
             if (_fullscreen) ExitFullscreen(); else EnterFullscreen(-1);
         }
 
-        private void LayoutSideBySide_Click(object sender, RoutedEventArgs e)
+        private void LayoutPreset_Click(object sender, RoutedEventArgs e)
         {
-            _stacked = false;
-            menuSideBySide.IsChecked = true;
-            menuStacked.IsChecked = false;
-            RebuildVideoLayout();
+            ApplyLayoutPreset((sender as FrameworkElement)?.Tag as string ?? "2-side");
+            _settings.layout_preset = _layoutPreset;
+            SaveSettings();
         }
 
-        private void LayoutStacked_Click(object sender, RoutedEventArgs e)
+        private void ApplyLayoutPreset(string preset)
         {
-            _stacked = true;
-            menuStacked.IsChecked = true;
-            menuSideBySide.IsChecked = false;
-            RebuildVideoLayout();
+            if (string.IsNullOrEmpty(preset))
+                preset = "2-side";
+
+            _layoutPreset = preset;
+            _stacked = preset == "2-stack";
+
+            if (menuLayout1 != null) menuLayout1.IsChecked = preset == "1";
+            if (menuLayout2Side != null) menuLayout2Side.IsChecked = preset == "2-side";
+            if (menuLayout2Stack != null) menuLayout2Stack.IsChecked = preset == "2-stack";
+            if (menuLayout4 != null) menuLayout4.IsChecked = preset == "4-quad";
+
+            ApplyVideoLayout();
         }
 
-        private void RebuildVideoLayout()
+        /// <summary>
+        /// Re-arranges the existing video cells for the current layout preset (or the
+        /// fullscreen "solo" feed). The video views are never re-parented (that would
+        /// tear down the LibVLC WPF overlay window and break clicks/overlays); we only
+        /// change spans/visibility and detach the overlay content of hidden feeds so
+        /// their separate VLC foreground windows don't bleed through.
+        /// </summary>
+        private void ApplyVideoLayout()
         {
-            if (_videoViews.Count == 0)
+            if (_videoCells.Count < 4)
                 return;
 
-            BuildVideoLayout(_videoViews.Count);
+            int n = _videoViews.Count;
 
-            for (int i = 0; i < _videoViews.Count && i < _videoCells.Count; i++)
-                _videoCells[i].Content = _videoViews[i];
+            // which feed index is shown in each cell (solo fullscreen overrides)
+            Func<int, bool> inLayout;
+            int firstShown = 0;
+
+            if (_soloFocus >= 0)
+            {
+                inLayout = i => i == _soloFocus;
+                firstShown = _soloFocus;
+            }
+            else
+            {
+                int effective;
+                switch (_layoutPreset)
+                {
+                    case "1": effective = Math.Min(n, 1); break;
+                    case "2-side":
+                    case "2-stack": effective = Math.Min(n, 2); break;
+                    default: effective = Math.Min(n, 4); break;
+                }
+                inLayout = i => i < effective;
+            }
+
+            for (int i = 0; i < 4; i++)
+            {
+                var c = _videoCells[i];
+                Grid.SetRow(c, 0);
+                Grid.SetColumn(c, 0);
+                Grid.SetRowSpan(c, 1);
+                Grid.SetColumnSpan(c, 1);
+
+                bool present = inLayout(i);
+                c.Visibility = present ? Visibility.Visible : Visibility.Collapsed;
+
+                if (i < _videoViews.Count && _videoViews[i] is ContentControl vc)
+                {
+                    if (present)
+                    {
+                        // (re)attach the view if it was unloaded, and show its overlay
+                        if (!ReferenceEquals(c.Content, _videoViews[i]))
+                            c.Content = _videoViews[i];
+                        vc.Visibility = Visibility.Visible;
+                        vc.Content = _videoOverlays[i];
+                    }
+                    else
+                    {
+                        // UNLOAD the view so its LibVLC/Flyleaf overlay window is
+                        // torn down - merely collapsing a cell leaves that separate
+                        // window floating over the fullscreen video.
+                        vc.Visibility = Visibility.Collapsed;
+                        vc.Content = null;
+                        if (c.Content != null)
+                            c.Content = null;
+                    }
+                }
+            }
+
+            // spans
+            if (_soloFocus >= 0)
+            {
+                var c = _videoCells[_soloFocus];
+                Grid.SetRowSpan(c, 2);
+                Grid.SetColumnSpan(c, 2);
+                return;
+            }
+
+            switch (_layoutPreset)
+            {
+                case "1":
+                    Grid.SetRowSpan(_videoCells[0], 2);
+                    Grid.SetColumnSpan(_videoCells[0], 2);
+                    break;
+
+                case "2-side":
+                    Grid.SetRowSpan(_videoCells[0], 2);
+                    Grid.SetRow(_videoCells[1], 0);
+                    Grid.SetColumn(_videoCells[1], 1);
+                    Grid.SetRowSpan(_videoCells[1], 2);
+                    break;
+
+                case "2-stack":
+                    Grid.SetColumnSpan(_videoCells[0], 2);
+                    Grid.SetRow(_videoCells[1], 1);
+                    Grid.SetColumn(_videoCells[1], 0);
+                    Grid.SetColumnSpan(_videoCells[1], 2);
+                    break;
+
+                case "4-quad":
+                    for (int i = 0; i < 4; i++)
+                    {
+                        Grid.SetRow(_videoCells[i], i / 2);
+                        Grid.SetColumn(_videoCells[i], i % 2);
+                    }
+                    break;
+            }
+        }
+
+        /// <summary>Single-click on a feed: toggle its on-screen overlays.</summary>
+        private void ToggleOverlays(int idx)
+        {
+            if (idx < 0 || idx >= 4)
+                return;
+
+            _overlayHidden[idx] = !_overlayHidden[idx];
+            var vis = _overlayHidden[idx] ? Visibility.Collapsed : Visibility.Visible;
+
+            if (_ovInfoBorder[idx] != null) _ovInfoBorder[idx].Visibility = vis;
+            if (_ovRightStack[idx] != null) _ovRightStack[idx].Visibility = vis;
+
+            if (_ovInfoButton[idx] != null)
+                _ovInfoButton[idx].Opacity = _overlayHidden[idx] ? 0.5 : 1.0;
         }
 
         private void Feature_Changed(object sender, RoutedEventArgs e)
@@ -324,6 +658,7 @@ namespace OpenTuner.Wpf
             try { _mqtt?.Disconnect(); } catch { }
             try { _quickTune?.Close(); } catch { }
             try { _datv?.Close(); } catch { }
+            try { _batcControl?.Stop(); } catch { }
             try { _propertyPanel?.Detach(); } catch { }
             try { _connectedSource?.Close(); } catch { }
 
@@ -333,7 +668,10 @@ namespace OpenTuner.Wpf
             _mqtt = null;
             _quickTune = null;
             _datv = null;
+            _batcControl = null;
             _connectedSource = null;
+            _latestData = null;
+            _soloFocus = -1;
 
             videoArea.Children.Clear();
             txtVideo.Visibility = Visibility.Visible;
@@ -342,8 +680,53 @@ namespace OpenTuner.Wpf
             extraCard.Visibility = Visibility.Visible;
         }
 
+        /// <summary>
+        /// If a source is configured with "Always Ask", show the WPF interface
+        /// chooser and apply the choice. Returns false if the user cancels.
+        /// </summary>
+        private bool PromptInterfaceIfNeeded(OTSource source)
+        {
+            try
+            {
+                if (source is WinterHillSource)
+                {
+                    var s = source.GetSettingsObject() as WinterHillSettings;
+                    if (s != null && s.DefaultInterface == 0)
+                    {
+                        var dlg = new OpenTuner.Wpf.Dialogs.ChooseInterfaceWindow(
+                            "WinterHill Interface",
+                            new[] { "WinterHill (ZR6TG Variant)", "PicoTuner (G4EWJ Ethernet WH)" }) { Owner = this };
+                        if (dlg.ShowDialog() != true)
+                            return false;
+                        s.DefaultInterface = (byte)(dlg.SelectedIndex + 1);
+                        source.PersistSettings();
+                    }
+                }
+                else if (source is MinitiounerSource)
+                {
+                    var s = source.GetSettingsObject() as MinitiounerSettings;
+                    if (s != null && s.DefaultInterface == 0)
+                    {
+                        var dlg = new OpenTuner.Wpf.Dialogs.ChooseInterfaceWindow(
+                            "Minitiouner Interface",
+                            new[] { "FTDI FT2232", "PicoTuner" }) { Owner = this };
+                        if (dlg.ShowDialog() != true)
+                            return false;
+                        s.DefaultInterface = (byte)(dlg.SelectedIndex + 1);
+                        source.PersistSettings();
+                    }
+                }
+            }
+            catch { }
+            return true;
+        }
+
         private bool ConnectSource(OTSource source)
         {
+            // honour the "Always Ask" interface setting for the sources that have one
+            if (!PromptInterfaceIfNeeded(source))
+                return false;
+
             int n = source.InitializeHeadless(ChangeVideo);
             if (n < 0)
             {
@@ -355,80 +738,223 @@ namespace OpenTuner.Wpf
             BuildVideoLayout(n);
 
             _players.Clear();
-            _videoInfo.Clear();
-            _videoVolume.Clear();
             _videoViews.Clear();
+            for (int i = 0; i < 4; i++)
+            {
+                _ovTitle[i] = null; _ovQrz[i] = null; _ovStream[i] = null;
+                _ovCodec[i] = null; _ovState[i] = null; _ovVolume[i] = null;
+                _ovLastService[i] = "";
+                _videoOverlays[i] = null; _ovInfoBorder[i] = null; _ovRightStack[i] = null;
+                _overlayHidden[i] = false; _ovInfoButton[i] = null;
+            }
+            _soloFocus = -1;
 
             for (int i = 0; i < n; i++)
             {
-                var view = new LibVLCSharp.WPF.VideoView();
+                bool useFfmpeg = _settings.mediaplayer_preferences[i] == 1 && App.FfmpegAvailable;
 
-                TextBlock info = new TextBlock
+                ContentControl view = useFfmpeg
+                    ? (ContentControl)new FlyleafLib.Controls.WPF.FlyleafHost()
+                    : new LibVLCSharp.WPF.VideoView();
+                int idx = i;
+
+                var badgeBg = new System.Windows.Media.SolidColorBrush(System.Windows.Media.Color.FromArgb(0xB0, 0, 0, 0));
+
+                var title = new TextBlock
                 {
                     Foreground = System.Windows.Media.Brushes.White,
-                    Background = new System.Windows.Media.SolidColorBrush(System.Windows.Media.Color.FromArgb(120, 0, 0, 0)),
-                    Padding = new System.Windows.Thickness(6, 3, 6, 3),
-                    FontSize = 11,
-                    HorizontalAlignment = HorizontalAlignment.Left,
-                    VerticalAlignment = VerticalAlignment.Top,
-                    Visibility = Visibility.Collapsed,
-                    TextWrapping = TextWrapping.Wrap
+                    FontSize = 14,
+                    FontWeight = System.Windows.FontWeights.Bold,
+                    Text = "RX " + (i + 1)
                 };
 
-                TextBlock vol = new TextBlock
+                var qrz = new TextBlock
+                {
+                    Foreground = new System.Windows.Media.SolidColorBrush(System.Windows.Media.Color.FromRgb(0xFB, 0xDD, 0x2D)),
+                    FontSize = 11,
+                    Margin = new System.Windows.Thickness(10, 0, 0, 0),
+                    VerticalAlignment = VerticalAlignment.Bottom
+                };
+
+                var titleRow = new StackPanel { Orientation = Orientation.Horizontal };
+                titleRow.Children.Add(title);
+                titleRow.Children.Add(qrz);
+
+                var stream = new TextBlock
+                {
+                    Foreground = new System.Windows.Media.SolidColorBrush(System.Windows.Media.Color.FromRgb(0xDD, 0xDD, 0xDD)),
+                    FontSize = 11,
+                    Margin = new System.Windows.Thickness(0, 3, 0, 0),
+                    Text = "Waiting for signal..."
+                };
+
+                var codec = new TextBlock
+                {
+                    Foreground = new System.Windows.Media.SolidColorBrush(System.Windows.Media.Color.FromRgb(0x9F, 0xB0, 0xC0)),
+                    FontSize = 11
+                };
+
+                var infoPanel = new StackPanel();
+                infoPanel.Children.Add(titleRow);
+                infoPanel.Children.Add(stream);
+                infoPanel.Children.Add(codec);
+
+                var infoBorder = new Border
+                {
+                    Background = badgeBg,
+                    CornerRadius = new System.Windows.CornerRadius(4),
+                    Padding = new System.Windows.Thickness(9, 6, 9, 6),
+                    Margin = new System.Windows.Thickness(6, 6, 0, 0),
+                    HorizontalAlignment = HorizontalAlignment.Left,
+                    VerticalAlignment = VerticalAlignment.Top,
+                    Child = infoPanel
+                };
+
+                var state = new TextBlock
                 {
                     Foreground = System.Windows.Media.Brushes.White,
-                    Background = new System.Windows.Media.SolidColorBrush(System.Windows.Media.Color.FromArgb(120, 0, 0, 0)),
-                    Padding = new System.Windows.Thickness(6, 3, 6, 3),
                     FontSize = 11,
                     HorizontalAlignment = HorizontalAlignment.Right,
-                    VerticalAlignment = VerticalAlignment.Top,
+                    Padding = new System.Windows.Thickness(6, 2, 6, 2),
+                    Background = badgeBg,
+                    Text = "NO SIGNAL"
+                };
+
+                var vol = new TextBlock
+                {
+                    Foreground = System.Windows.Media.Brushes.White,
+                    FontSize = 11,
+                    HorizontalAlignment = HorizontalAlignment.Right,
+                    Padding = new System.Windows.Thickness(6, 2, 6, 2),
+                    Background = badgeBg,
+                    Margin = new System.Windows.Thickness(0, 4, 0, 0),
                     Text = "Vol 0"
                 };
 
+                // top-right column: badges (toggled by "info") + always-visible chips
+                var rightStack = new StackPanel
+                {
+                    HorizontalAlignment = HorizontalAlignment.Right
+                };
+                rightStack.Children.Add(state);
+                rightStack.Children.Add(vol);
+
+                var mdlicons = new System.Windows.Media.FontFamily("Segoe MDL2 Assets");
+
+                var infoText = new TextBlock
+                {
+                    Text = "\uE946",                       // info glyph
+                    FontFamily = mdlicons,
+                    FontSize = 13,
+                    Foreground = System.Windows.Media.Brushes.White
+                };
+                var infoChip = new Border
+                {
+                    Background = badgeBg,
+                    CornerRadius = new System.Windows.CornerRadius(4),
+                    Padding = new System.Windows.Thickness(7, 3, 7, 3),
+                    Margin = new System.Windows.Thickness(0, 0, 6, 0),
+                    Cursor = System.Windows.Input.Cursors.Hand,
+                    Child = infoText,
+                    ToolTip = "Show / hide the stream overlay"
+                };
+                infoChip.MouseLeftButtonDown += (s, e) => { ToggleOverlays(idx); e.Handled = true; };
+
+                var fullChip = new Border
+                {
+                    Background = badgeBg,
+                    CornerRadius = new System.Windows.CornerRadius(4),
+                    Padding = new System.Windows.Thickness(7, 3, 7, 3),
+                    Cursor = System.Windows.Input.Cursors.Hand,
+                    Child = new TextBlock
+                    {
+                        Text = "\uE740",                   // fullscreen glyph
+                        FontFamily = mdlicons,
+                        FontSize = 13,
+                        Foreground = System.Windows.Media.Brushes.White
+                    },
+                    ToolTip = "Fullscreen this RX"
+                };
+                fullChip.MouseLeftButtonDown += (s, e) => { ToggleFullscreen(idx); e.Handled = true; };
+
+                var chipRow = new StackPanel
+                {
+                    Orientation = Orientation.Horizontal,
+                    HorizontalAlignment = HorizontalAlignment.Right,
+                    Margin = new System.Windows.Thickness(0, 4, 0, 0)
+                };
+                chipRow.Children.Add(infoChip);
+                chipRow.Children.Add(fullChip);
+
+                var rightCol = new StackPanel
+                {
+                    HorizontalAlignment = HorizontalAlignment.Right,
+                    VerticalAlignment = VerticalAlignment.Top,
+                    Margin = new System.Windows.Thickness(0, 6, 6, 0)
+                };
+                rightCol.Children.Add(rightStack);   // badges - collapsed by "info"
+                rightCol.Children.Add(chipRow);      // chips - always visible
+
                 var overlay = new Grid { Background = System.Windows.Media.Brushes.Transparent };
-                overlay.Children.Add(info);
-                overlay.Children.Add(vol);
+                overlay.Children.Add(infoBorder);
+                overlay.Children.Add(rightCol);
+
                 view.Content = overlay;
 
-                int idx = i;
                 overlay.MouseWheel += (s, e) =>
                 {
                     source.UpdateVolume(idx, e.Delta > 0 ? 10 : -10);
                     vol.Text = "Vol " + source.GetVolume(idx);
                     e.Handled = true;
                 };
-                overlay.MouseLeftButtonDown += (s, e) =>
-                {
-                    if (e.ClickCount == 2)
-                    {
-                        ToggleFullscreen(idx);
-                        e.Handled = true;
-                    }
-                    else
-                    {
-                        info.Visibility = info.Visibility == Visibility.Visible ? Visibility.Collapsed : Visibility.Visible;
-                    }
-                };
 
                 _videoCells[i].Content = view;
-                _videoInfo.Add(info);
-                _videoVolume.Add(vol);
+                _videoOverlays[i] = overlay;
+                _ovInfoBorder[i] = infoBorder;
+                _ovRightStack[i] = rightStack;
+                _ovInfoButton[i] = infoChip;
+                _ovTitle[i] = title;
+                _ovQrz[i] = qrz;
+                _ovStream[i] = stream;
+                _ovCodec[i] = codec;
+                _ovState[i] = state;
+                _ovVolume[i] = vol;
                 _videoViews.Add(view);
 
-                var player = new WpfVlcMediaPlayer(view);
+                OTMediaPlayer player = useFfmpeg
+                    ? (OTMediaPlayer)new OpenTuner.Wpf.Players.WpfFlyleafMediaPlayer((FlyleafLib.Controls.WPF.FlyleafHost)view)
+                    : new OpenTuner.Wpf.Players.WpfVlcMediaPlayer((LibVLCSharp.WPF.VideoView)view);
                 player.Initialize(source.GetVideoDataQueue(i), i);
                 player.onVideoOut += Player_onVideoOut;
                 _players.Add(player);
             }
 
+            ApplyVideoLayout();
+
             source.ConfigureVideoPlayers(_players);
             source.ConfigureMediaPath(_settings.media_path);
+
+            // honour "mute at startup"
+            if (_settings.mute_at_startup)
+            {
+                try { source.OverrideDefaultMuted(true); } catch { }
+            }
 
             // raw .ts recorders and UDP streamers (needed by the R / U media buttons)
             _recorders.Clear();
             for (int i = 0; i < n; i++)
-                _recorders.Add(new TSRecorder(_settings.media_video_path, i, source));
+            {
+                var rec = new TSRecorder(_settings.media_video_path, i, source)
+                {
+                    FilenameTemplate = string.IsNullOrEmpty(_settings.record_filename_template)
+                        ? "{callsign}_{service}_{freq}_{date}_{time}"
+                        : _settings.record_filename_template,
+                    WriteSidecar = _settings.record_sidecar,
+                    MaxSizeBytes = _settings.record_max_mb > 0 ? _settings.record_max_mb * 1024L * 1024L : 0,
+                    MaxDuration = _settings.record_max_minutes > 0 ? TimeSpan.FromMinutes(_settings.record_max_minutes) : TimeSpan.Zero
+                };
+                _recorders.Add(rec);
+            }
             source.ConfigureTSRecorders(_recorders);
 
             _streamers.Clear();
@@ -446,6 +972,7 @@ namespace OpenTuner.Wpf
             // native WPF BATC spectrum
             if (chkBatcSpectrum.IsChecked == true)
             {
+                try { _batcControl?.Stop(); } catch { }
                 _batcControl = new BatcSpectrumControl();
                 _batcControl.OnSignalSelected += Sdr_OnSignalSelected;
                 batcHost.Content = _batcControl;
@@ -463,7 +990,85 @@ namespace OpenTuner.Wpf
             source.TunerControlRequested += tuner =>
                 Dispatcher.Invoke(() => new OpenTuner.Wpf.Dialogs.TuneWindow(source, tuner) { Owner = this }.ShowDialog());
 
+            ApplyLayoutPreset(_layoutPreset);
+            StartSnapshotTimer();
+
+            // signal history RX list
+            try
+            {
+                if (_signalGraph != null) _signalGraph.Clear();
+                comboSignalRx.Items.Clear();
+                for (int i = 0; i < n; i++)
+                    comboSignalRx.Items.Add("RX " + (i + 1));
+                if (comboSignalRx.Items.Count > 0)
+                    comboSignalRx.SelectedIndex = 0;
+            }
+            catch { }
+
+            // refresh the QSO "From RX" buttons for the (re)connected tuner count
+            try { _qsoLogControl?.Reload(); } catch { }
+
             return true;
+        }
+
+        private void SignalRx_Changed(object sender, SelectionChangedEventArgs e)
+        {
+            if (_signalGraph != null)
+                _signalGraph.Tuner = Math.Max(0, comboSignalRx.SelectedIndex);
+        }
+
+        private void GraphSeries_Click(object sender, RoutedEventArgs e)
+        {
+            if (_signalGraph == null)
+                return;
+
+            _signalGraph.ShowMer = chkGraphMer.IsChecked == true;
+            _signalGraph.ShowMargin = chkGraphMargin.IsChecked == true;
+            _signalGraph.ShowBer = chkGraphBer.IsChecked == true;
+            _signalGraph.InvalidateVisual();
+        }
+
+        private void GraphWindow_Changed(object sender, SelectionChangedEventArgs e)
+        {
+            if (_signalGraph == null)
+                return;
+
+            double[] secs = { 60, 120, 300, 600, 1800 };
+            int i = comboGraphWindow.SelectedIndex;
+            if (i >= 0 && i < secs.Length)
+                _signalGraph.WindowSeconds = secs[i];
+        }
+
+        private void SignalClear_Click(object sender, RoutedEventArgs e)
+        {
+            _signalGraph?.Clear();
+        }
+
+        private void StartSnapshotTimer()
+        {
+            _snapshotTimer?.Stop();
+            _snapshotTimer = null;
+
+            int interval = _settings.snapshot_interval_seconds;
+            if (interval <= 0)
+                return;
+
+            _snapshotTimer = new System.Windows.Threading.DispatcherTimer { Interval = TimeSpan.FromSeconds(interval) };
+            _snapshotTimer.Tick += (s, e) => TakeSnapshot();
+            _snapshotTimer.Start();
+        }
+
+        private void TakeSnapshot()
+        {
+            try
+            {
+                for (int i = 0; i < _players.Count; i++)
+                {
+                    string name = _settings.media_path + CommonFunctions.GenerateTimestampFilename() + "_rx" + (i + 1) + ".png";
+                    _players[i].SnapShot(name);
+                }
+            }
+            catch { }
         }
 
         private void Source_OnSourceData(int videoNr, OTSourceData properties, string description)
@@ -471,7 +1076,44 @@ namespace OpenTuner.Wpf
             if (properties == null)
                 return;
 
+            _latestData = properties;
+
+            try
+            {
+                if (videoNr >= 0 && videoNr < _latestByTuner.Length)
+                    _latestByTuner[videoNr] = properties;
+            }
+            catch { }
+
+            try { _signalGraph?.AddSample(videoNr, properties.mer, properties.db_margin, properties.ber, properties.demod_locked); } catch { }
+
+            try { UpdateVideoOverlay(videoNr, properties); } catch { }
+
+            try
+            {
+                int recIdx = videoNr;
+                if (recIdx >= 0 && recIdx < _recorders.Count)
+                    _recorders[recIdx].LatestData = properties;
+            }
+            catch { }
+
             try { _batcControl?.updateSignalCallsign(properties.service_name, properties.frequency, properties.symbol_rate); } catch { }
+
+            // lock acquired / lost toast
+            try
+            {
+                if (videoNr == 0)
+                {
+                    if (properties.demod_locked && !_lastLockState)
+                        ToastService.Show(LocalizationManager.Get("mw.toast.locked") + (string.IsNullOrEmpty(properties.service_name) ? "" : ": " + properties.service_name), ToastKind.Success, 4);
+                    else if (!properties.demod_locked && _lastLockState)
+                        ToastService.Show(LocalizationManager.Get("mw.toast.lost"), ToastKind.Warning, 3);
+                    _lastLockState = properties.demod_locked;
+                }
+            }
+            catch { }
+
+            // QRZ + stream info are shown in the per-video overlay (UpdateVideoOverlay)
 
             if (_mqtt != null)
             {
@@ -494,6 +1136,205 @@ namespace OpenTuner.Wpf
             }
         }
 
+        private async void LookupAndToast(string callsign)
+        {
+            try
+            {
+                if (_qrzClient == null)
+                    _qrzClient = new opentuner.ExtraFeatures.QRZ.QrzClient(_qrzSettings);
+
+                var r = await _qrzClient.LookupAsync(callsign);
+                if (r.success)
+                    ToastService.Show("QRZ " + r.callsign + (string.IsNullOrEmpty(r.name) ? "" : ": " + r.name) +
+                                      (string.IsNullOrEmpty(r.country) ? "" : " (" + r.country + ")"), ToastKind.Info, 6);
+            }
+            catch { }
+        }
+
+        /// <summary>Updates the stream-info + QRZ overlay drawn on top of a video.</summary>
+        private void UpdateVideoOverlay(int idx, OTSourceData d)
+        {
+            if (idx < 0 || idx >= 4 || d == null)
+                return;
+
+            Dispatcher.BeginInvoke(new Action(() =>
+            {
+                try
+                {
+                    if (_ovTitle[idx] == null)
+                        return;
+
+                    string svc = (d.service_name ?? "").Trim();
+                    string prov = (d.service_provider ?? "").Trim();
+
+                    // callsign from the service name, falling back to the service provider
+                    string csSvc = opentuner.Utilities.CallsignParser.Extract(svc);
+                    string csProv = opentuner.Utilities.CallsignParser.Extract(prov);
+                    string callsign = !string.IsNullOrEmpty(csSvc) ? csSvc : csProv;
+
+                    // show the callsign prominently (even when QRZ is disabled)
+                    _ovTitle[idx].Text = !string.IsNullOrEmpty(callsign)
+                        ? callsign
+                        : (!string.IsNullOrEmpty(svc) ? svc : (d.demod_locked ? "Locked" : "No signal"));
+
+                    var s = new System.Text.StringBuilder();
+                    if (d.frequency > 0) s.Append((d.frequency / 1000.0).ToString("F3")).Append(" MHz   ");
+                    if (d.symbol_rate > 0) s.Append(d.symbol_rate).Append(" kSym   ");
+                    s.Append("SNR/MER ").Append(d.mer.ToString("F1")).Append(" dB   ");
+                    s.Append("Margin ").Append(d.db_margin.ToString("F1")).Append(" dB");
+                    if (d.ber > 0) s.Append("   BER ").Append(d.ber.ToString("0.#E+0"));
+                    if (!string.IsNullOrEmpty(d.modcode)) s.Append("   ").Append(d.modcode);
+                    _ovStream[idx].Text = s.ToString();
+
+                    bool recording = idx < _recorders.Count && _recorders[idx] != null && _recorders[idx].record;
+                    bool streaming = idx < _streamers.Count && _streamers[idx] != null && _streamers[idx].stream;
+
+                    string st = d.demod_locked ? "LOCKED" : "NO LOCK";
+                    if (recording) st += "   REC";
+                    if (streaming) st += "   STREAM";
+                    _ovState[idx].Text = st;
+
+                    if (recording)
+                        _ovState[idx].Foreground = new System.Windows.Media.SolidColorBrush(System.Windows.Media.Color.FromRgb(0xFF, 0x6B, 0x6B));
+                    else if (d.demod_locked)
+                        _ovState[idx].Foreground = new System.Windows.Media.SolidColorBrush(System.Windows.Media.Color.FromRgb(0x6B, 0xE0, 0x8A));
+                    else
+                        _ovState[idx].Foreground = new System.Windows.Media.SolidColorBrush(System.Windows.Media.Color.FromRgb(0xE0, 0x7A, 0x7A));
+
+                    // operator line: service name / provider (used as QRZ fallback text)
+                    string info = svc;
+                    if (!string.IsNullOrEmpty(prov) && prov != svc)
+                        info = string.IsNullOrEmpty(info) ? prov : info + "  (" + prov + ")";
+                    if (info == callsign)
+                        info = "";
+
+                    string key = svc + "|" + prov;
+                    if (key != _ovLastService[idx])
+                    {
+                        _ovLastService[idx] = key;
+
+                        if (_qrzSettings != null && _qrzSettings.enabled && !string.IsNullOrEmpty(callsign))
+                        {
+                            _ovQrz[idx].Text = "QRZ...";
+                            DoQrzOverlay(idx, csSvc ?? callsign, csProv, info);
+                        }
+                        else
+                        {
+                            // QRZ disabled - still show the operator / service info
+                            _ovQrz[idx].Text = info;
+                        }
+                    }
+                }
+                catch { }
+            }));
+        }
+
+        /// <summary>
+        /// Looks the callsign up on QRZ, falling back to the service-provider
+        /// callsign if the service-name lookup fails. On total failure it shows
+        /// the supplied operator text instead.
+        /// </summary>
+        private async void DoQrzOverlay(int idx, string primary, string secondary, string fallback)
+        {
+            try
+            {
+                if (_qrzClient == null)
+                    _qrzClient = new opentuner.ExtraFeatures.QRZ.QrzClient(_qrzSettings);
+
+                opentuner.ExtraFeatures.QRZ.QrzResult r = null;
+
+                if (!string.IsNullOrEmpty(primary))
+                    r = await _qrzClient.LookupAsync(primary);
+
+                if ((r == null || !r.success) && !string.IsNullOrEmpty(secondary) && secondary != primary)
+                    r = await _qrzClient.LookupAsync(secondary);
+
+                string text = (r != null && r.success)
+                    ? (string.IsNullOrEmpty(r.name) ? r.callsign : r.name) +
+                      (string.IsNullOrEmpty(r.country) ? "" : " (" + r.country + ")")
+                    : (fallback ?? "");
+
+                Dispatcher.BeginInvoke(new Action(() =>
+                {
+                    if (idx >= 0 && idx < 4 && _ovQrz[idx] != null)
+                        _ovQrz[idx].Text = text;
+                }));
+            }
+            catch { }
+        }
+
+        private void UpdateStatusBar()
+        {
+            try
+            {
+                string L(string k) => LocalizationManager.Get(k);
+
+                if (_connectedSource == null)
+                {
+                    statusSource.Text = L("mw.status.source") + ": -";
+                    statusDevice.Text = L("mw.status.device") + ": -";
+                    statusLock.Text = L("mw.status.lock") + ": -";
+                    statusLock.Foreground = (System.Windows.Media.Brush)FindResource("TextSecondary");
+                    statusDetail.Text = "";
+                    statusRec.Text = "";
+                    statusStream.Text = "";
+                    statusDisk.Text = L("mw.status.disk") + ": -";
+                    return;
+                }
+
+                statusSource.Text = L("mw.status.source") + ": " + _connectedSource.GetName();
+                statusDevice.Text = L("mw.status.device") + ": " + _connectedSource.GetDeviceName();
+
+                var d = _latestData;
+                bool locked = d != null && d.demod_locked;
+                statusLock.Text = L("mw.status.lock") + ": " + L(locked ? "mw.status.yes" : "mw.status.no");
+                statusLock.Foreground = locked
+                    ? new System.Windows.Media.SolidColorBrush(System.Windows.Media.Color.FromRgb(0x3D, 0xB0, 0x6B))
+                    : (System.Windows.Media.Brush)FindResource("TextSecondary");
+
+                if (d != null)
+                    statusDetail.Text = (string.IsNullOrEmpty(d.service_name) ? "" : d.service_name + "  ") +
+                                        (d.frequency > 0 ? (d.frequency / 1000.0).ToString("F3") + " MHz  " : "") +
+                                        (d.symbol_rate > 0 ? d.symbol_rate + " kSym  " : "") +
+                                        "MER " + d.mer.ToString("F1") + "  Margin " + d.db_margin.ToString("F1");
+
+                bool rec = _recorders.Exists(r => r.record);
+                bool stream = _streamers.Exists(s => s.stream);
+                statusRec.Text = rec ? "REC" : "";
+                statusRec.Foreground = new System.Windows.Media.SolidColorBrush(System.Windows.Media.Color.FromRgb(0xD9, 0x53, 0x4F));
+                statusStream.Text = stream ? "STREAM" : "";
+                statusStream.Foreground = new System.Windows.Media.SolidColorBrush(System.Windows.Media.Color.FromRgb(0x4A, 0x90, 0xD9));
+
+                // keep the per-video overlay volume in sync with the real volume
+                for (int i = 0; i < _players.Count && i < 4; i++)
+                {
+                    if (_ovVolume[i] == null)
+                        continue;
+                    int v = _connectedSource.GetVolume(i);
+                    if (v >= 0)
+                        _ovVolume[i].Text = "Vol " + v;
+                }
+
+                if (rec && !_lastRecState)
+                    ToastService.Show(L("mw.toast.recstart"), ToastKind.Success, 3);
+                else if (!rec && _lastRecState)
+                    ToastService.Show(L("mw.toast.recstop"), ToastKind.Info, 3);
+                _lastRecState = rec;
+
+                try
+                {
+                    string root = Path.GetPathRoot(_settings.media_video_path);
+                    if (!string.IsNullOrEmpty(root))
+                    {
+                        var drive = new DriveInfo(root);
+                        statusDisk.Text = L("mw.status.disk") + ": " + (drive.AvailableFreeSpace / (1024.0 * 1024 * 1024)).ToString("F1") + " GB " + L("mw.status.free");
+                    }
+                }
+                catch { }
+            }
+            catch { }
+        }
+
         private void BuildVideoLayout(int n)
         {
             videoArea.Children.Clear();
@@ -501,20 +1342,18 @@ namespace OpenTuner.Wpf
             videoArea.ColumnDefinitions.Clear();
             _videoCells.Clear();
 
-            int cols, rows;
-            if (n <= 1) { rows = 1; cols = 1; }
-            else if (n == 2) { rows = _stacked ? 2 : 1; cols = _stacked ? 1 : 2; }
-            else if (n == 4) { rows = 2; cols = 2; }
-            else { rows = 1; cols = n; }
+            // fixed 2x2 grid; the layout preset changes spans/visibility only, so
+            // the video views (and their LibVLC overlay windows) are never rebuilt.
+            videoArea.RowDefinitions.Add(new RowDefinition());
+            videoArea.RowDefinitions.Add(new RowDefinition());
+            videoArea.ColumnDefinitions.Add(new ColumnDefinition());
+            videoArea.ColumnDefinitions.Add(new ColumnDefinition());
 
-            for (int r = 0; r < rows; r++) videoArea.RowDefinitions.Add(new RowDefinition());
-            for (int c = 0; c < cols; c++) videoArea.ColumnDefinitions.Add(new ColumnDefinition());
-
-            for (int i = 0; i < n; i++)
+            for (int i = 0; i < 4; i++)
             {
                 var cell = new ContentControl { Margin = new Thickness(1) };
-                Grid.SetRow(cell, i / cols);
-                Grid.SetColumn(cell, i % cols);
+                Grid.SetRow(cell, 0);
+                Grid.SetColumn(cell, 0);
                 videoArea.Children.Add(cell);
                 _videoCells.Add(cell);
             }
@@ -525,17 +1364,19 @@ namespace OpenTuner.Wpf
             try
             {
                 int id = ((OTMediaPlayer)sender).getID();
-                if (id < 0 || id >= _videoInfo.Count)
+                if (id < 0 || id >= 4 || _ovCodec[id] == null)
                     return;
 
-                string text =
-                    (string.IsNullOrEmpty(status.VideoCodec) ? "" : status.VideoCodec) +
-                    (status.VideoWidth > 0 ? "  " + status.VideoWidth + "x" + status.VideoHeight : "") +
-                    "\n" +
-                    (string.IsNullOrEmpty(status.AudioCodec) ? "" : status.AudioCodec) +
-                    (status.AudioChannels > 0 ? "  " + status.AudioChannels + "ch" : "");
+                string video = (string.IsNullOrEmpty(status.VideoCodec) ? "" : status.VideoCodec) +
+                               (status.VideoWidth > 0 ? " " + status.VideoWidth + "x" + status.VideoHeight : "");
+                string audio = (string.IsNullOrEmpty(status.AudioCodec) ? "" : status.AudioCodec) +
+                               (status.AudioChannels > 0 ? " " + status.AudioChannels + "ch" : "");
 
-                Dispatcher.Invoke(() => _videoInfo[id].Text = text.Trim());
+                string text = video;
+                if (!string.IsNullOrEmpty(audio))
+                    text += (string.IsNullOrEmpty(text) ? "" : "   ") + audio;
+
+                Dispatcher.Invoke(() => _ovCodec[id].Text = text.Trim());
             }
             catch { }
         }
@@ -550,6 +1391,10 @@ namespace OpenTuner.Wpf
             {
                 _connectedSource?.StartStreaming(i);
                 _players[i].Play();
+
+                // auto-record: start the raw .ts recorder as soon as streaming starts
+                if (_settings.auto_record && i < _recorders.Count && _recorders[i] != null)
+                    _recorders[i].record = true;
             }
             else
             {
@@ -669,7 +1514,9 @@ namespace OpenTuner.Wpf
 
         private void DarkMode_Click(object sender, RoutedEventArgs e)
         {
+            if (menuHighContrast != null) menuHighContrast.IsChecked = false;
             ThemeManager.Apply(menuDarkMode.IsChecked);
+            try { _signalGraph?.InvalidateVisual(); } catch { }
         }
 
         private void Settings_Click(object sender, RoutedEventArgs e)
@@ -779,14 +1626,24 @@ namespace OpenTuner.Wpf
 
         private void PlutoControl_Click(object sender, RoutedEventArgs e)
         {
-            new OpenTuner.Wpf.Dialogs.PlutoControlWindow { Owner = this }.Show();
+            try
+            {
+                if (_mqtt == null)
+                    _mqtt = new MqttManager();
+
+                new OpenTuner.Wpf.Dialogs.PlutoControlWindow(_mqtt, _connectedSource) { Owner = this }.Show();
+            }
+            catch (Exception ex)
+            {
+                MessageBox.Show("Pluto control failed: " + ex.Message, "Open Tuner");
+            }
         }
 
         private void WebChat_Click(object sender, RoutedEventArgs e)
         {
             if (_connectedSource == null)
             {
-                MessageBox.Show("Connect to a source first.", "Open Tuner");
+                MessageBox.Show(LocalizationManager.Get("msg.connectsource"), "Open Tuner");
                 return;
             }
 
@@ -821,7 +1678,7 @@ namespace OpenTuner.Wpf
         {
             if (_connectedSource == null)
             {
-                MessageBox.Show("Connect to a source first.", "Open Tuner");
+                MessageBox.Show(LocalizationManager.Get("msg.connectsource"), "Open Tuner");
                 return;
             }
 
@@ -842,6 +1699,215 @@ namespace OpenTuner.Wpf
             try { System.Diagnostics.Process.Start("https://www.zr6tg.co.za/opentuner-documentation/"); } catch { }
         }
 
+        private void QrzToggled(object sender, RoutedEventArgs e)
+        {
+            if (_qrzSettings == null)
+                _qrzSettings = new opentuner.ExtraFeatures.QRZ.QrzSettings();
+
+            _qrzSettings.enabled = chkQrz.IsChecked == true;
+            _qrzClient = null;
+
+            var mgr = new SettingsManager<opentuner.ExtraFeatures.QRZ.QrzSettings>("qrz_settings");
+            try { mgr.SaveSettings(_qrzSettings); } catch { }
+        }
+
+        private void QrzSettings_Click(object sender, RoutedEventArgs e)
+        {
+            if (_qrzSettings == null)
+                _qrzSettings = new opentuner.ExtraFeatures.QRZ.QrzSettings();
+
+            if (new OpenTuner.Wpf.Dialogs.QrzWindow(_qrzSettings) { Owner = this }.ShowDialog() == true)
+            {
+                _qrzClient = null;
+                chkQrz.IsChecked = _qrzSettings.enabled;
+                var mgr = new SettingsManager<opentuner.ExtraFeatures.QRZ.QrzSettings>("qrz_settings");
+                try { mgr.SaveSettings(_qrzSettings); } catch { }
+            }
+        }
+
+        private void HighContrast_Click(object sender, RoutedEventArgs e)
+        {
+            if (menuHighContrast.IsChecked)
+            {
+                menuDarkMode.IsChecked = false;
+                ThemeManager.ApplyHighContrast(true);
+            }
+            else
+            {
+                ThemeManager.Apply(menuDarkMode.IsChecked);
+            }
+            try { _signalGraph?.InvalidateVisual(); } catch { }
+        }
+
+        private void BuildLanguageMenu()
+        {
+            menuLanguage.Items.Clear();
+
+            foreach (var (code, name) in LocalizationManager.Languages)
+            {
+                var item = new MenuItem
+                {
+                    Header = name,
+                    Tag = code,
+                    IsCheckable = true,
+                    IsChecked = code == LocalizationManager.CurrentLanguage
+                };
+                item.Click += Language_Click;
+                menuLanguage.Items.Add(item);
+            }
+        }
+
+        private void Language_Click(object sender, RoutedEventArgs e)
+        {
+            var mi = sender as MenuItem;
+            string lang = mi?.Tag as string ?? "en";
+
+            LocalizationManager.Apply(lang);
+
+            // update the check marks
+            foreach (var obj in menuLanguage.Items)
+                if (obj is MenuItem m)
+                    m.IsChecked = (m.Tag as string) == lang;
+
+            _settings.language = lang;
+            SaveSettings();
+        }
+
+        private void Shortcuts_Click(object sender, RoutedEventArgs e)
+        {
+            new OpenTuner.Wpf.Dialogs.ShortcutsWindow { Owner = this }.ShowDialog();
+        }
+
+        private void BandScan_Click(object sender, RoutedEventArgs e)
+        {
+            if (_connectedSource == null)
+            {
+                MessageBox.Show(LocalizationManager.Get("msg.connectsource"), "Open Tuner");
+                return;
+            }
+
+            var win = new OpenTuner.Wpf.Dialogs.BandScanWindow(_connectedSource, _latestData) { Owner = this };
+            win.Show();
+        }
+
+        private void Beacons_Click(object sender, RoutedEventArgs e)
+        {
+            var win = new OpenTuner.Wpf.Dialogs.BeaconWindow(_connectedSource) { Owner = this };
+            win.ShowDialog();
+        }
+
+        private OpenTuner.Wpf.Dialogs.QsoLogControl _qsoLogControl;
+        private OpenTuner.Wpf.Dialogs.QsoLogWindow _qsoLogWindow;
+
+        private void QsoLog_Click(object sender, RoutedEventArgs e)
+        {
+            try
+            {
+                if (_qsoLogWindow == null)
+                {
+                    _qsoLogWindow = new OpenTuner.Wpf.Dialogs.QsoLogWindow(_settings, QsoRxCount, CurrentSignalForQso, SignalInfoForQso) { Owner = this };
+                    _qsoLogWindow.Closed += (s, ev) => _qsoLogWindow = null;
+                }
+                _qsoLogWindow.Show();
+                _qsoLogWindow.Activate();
+            }
+            catch (Exception ex)
+            {
+                MessageBox.Show("QSO log failed: " + ex.Message, "Open Tuner");
+            }
+        }
+
+        private void EnsureQsoControl()
+        {
+            if (_qsoLogControl != null)
+            {
+                _qsoLogControl.Reload();
+                return;
+            }
+
+            _qsoLogControl = new OpenTuner.Wpf.Dialogs.QsoLogControl(_settings, QsoRxCount, CurrentSignalForQso, SignalInfoForQso);
+            qsoHost.Content = _qsoLogControl;
+        }
+
+        private void TabsTools_SelectionChanged(object sender, SelectionChangedEventArgs e)
+        {
+            try
+            {
+                if (e.OriginalSource == tabsTools && tabsTools.SelectedItem == tabQso)
+                    EnsureQsoControl();
+            }
+            catch { }
+        }
+
+        /// <summary>Current tuned signal's callsign + frequency for QSO auto-fill (per RX).</summary>
+        private (string call, double freqMhz) CurrentSignalForQso(int rx)
+        {
+            OTSourceData d = (rx >= 0 && rx < _latestByTuner.Length) ? _latestByTuner[rx] : _latestData;
+            if (d == null)
+                return ("", 0);
+
+            string svc = (d.service_name ?? "").Trim();
+            string prov = (d.service_provider ?? "").Trim();
+            string call = opentuner.Utilities.CallsignParser.Extract(svc)
+                          ?? opentuner.Utilities.CallsignParser.Extract(prov)
+                          ?? "";
+
+            double freq = d.frequency > 0 ? d.frequency / 1000.0 : 0;
+            return (call, freq);
+        }
+
+        /// <summary>Formatted signal details for a tuner, for the QSO comment.</summary>
+        private string SignalInfoForQso(int rx)
+        {
+            OTSourceData d = (rx >= 0 && rx < _latestByTuner.Length) ? _latestByTuner[rx] : _latestData;
+            if (d == null)
+                return "";
+
+            string svc = (d.service_name ?? "").Trim();
+            string prov = (d.service_provider ?? "").Trim();
+            string call = opentuner.Utilities.CallsignParser.Extract(svc)
+                          ?? opentuner.Utilities.CallsignParser.Extract(prov)
+                          ?? "";
+
+            var sb = new System.Text.StringBuilder();
+            sb.Append("RX").Append(rx + 1).Append(": ");
+            if (!string.IsNullOrEmpty(call)) sb.Append(call).Append(' ');
+            if (!string.IsNullOrEmpty(svc)) sb.Append('"').Append(svc).Append('"').Append(' ');
+            if (!string.IsNullOrEmpty(prov)) sb.Append('(').Append(prov).Append(") ");
+            if (d.frequency > 0) sb.Append((d.frequency / 1000.0).ToString("F3", System.Globalization.CultureInfo.InvariantCulture)).Append(" MHz  ");
+            if (d.symbol_rate > 0) sb.Append(d.symbol_rate).Append(" kSym  ");
+            sb.Append("SNR/MER ").Append(d.mer.ToString("F1", System.Globalization.CultureInfo.InvariantCulture)).Append(" dB  ");
+            sb.Append("Margin ").Append(d.db_margin.ToString("F1", System.Globalization.CultureInfo.InvariantCulture)).Append(" dB");
+            if (d.ber > 0) sb.Append("  BER ").Append(d.ber.ToString("0.#E+0", System.Globalization.CultureInfo.InvariantCulture));
+            if (!string.IsNullOrEmpty(d.modcode)) sb.Append("  ").Append(d.modcode);
+
+            return sb.ToString().Trim();
+        }
+
+        /// <summary>Number of tuners/RXs available from the connected source.</summary>
+        private int QsoRxCount()
+        {
+            try
+            {
+                if (_connectedSource != null)
+                    return Math.Max(1, _connectedSource.GetVideoSourceCount());
+            }
+            catch { }
+            return 2;
+        }
+
+        private void RecordManager_Click(object sender, RoutedEventArgs e)
+        {
+            var win = new OpenTuner.Wpf.Dialogs.RecordManagerWindow(_settings.media_video_path) { Owner = this };
+            win.Show();
+        }
+
+        private void Gallery_Click(object sender, RoutedEventArgs e)
+        {
+            var win = new OpenTuner.Wpf.Dialogs.GalleryWindow(_settings.media_path) { Owner = this };
+            win.Show();
+        }
+
         private void Link_Click(object sender, RoutedEventArgs e)
         {
             try
@@ -858,6 +1924,7 @@ namespace OpenTuner.Wpf
         }
     }
 }
+
 
 
 

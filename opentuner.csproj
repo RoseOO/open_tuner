@@ -15,7 +15,7 @@
     <Configuration Condition=" '$(Configuration)' == '' ">Debug</Configuration>
     <Platform Condition=" '$(Platform)' == '' ">AnyCPU</Platform>
     <ProjectGuid>{2E89E032-7250-4223-93EC-FBA2482988DC}</ProjectGuid>
-    <OutputType>Exe</OutputType>
+    <OutputType>Library</OutputType>
     <RootNamespace>opentuner</RootNamespace>
     <AssemblyName>opentuner</AssemblyName>
     <TargetFrameworkVersion>v4.7.2</TargetFrameworkVersion>
@@ -61,11 +61,7 @@
     <Prefer32Bit>false</Prefer32Bit>
   </PropertyGroup>
   <PropertyGroup>
-    <StartupObject>opentuner.Program</StartupObject>
-  </PropertyGroup>
-  <PropertyGroup>
     <ApplicationIcon>tv.ico</ApplicationIcon>
-    <ApplicationManifest>app.manifest</ApplicationManifest>
   </PropertyGroup>
   <ItemGroup>
     <Reference Include="CoreAudio, Version=2023.2.28.120, Culture=neutral, processorArchitecture=MSIL">
@@ -275,6 +271,8 @@
     <Compile Include="ExtraFeatures\QuickTuneControl\QuickTuneControlSettingsForm.Designer.cs">
       <DependentUpon>QuickTuneControlSettingsForm.cs</DependentUpon>
     </Compile>
+    <Compile Include="ExtraFeatures\QRZ\QrzSettings.cs" />
+    <Compile Include="ExtraFeatures\QRZ\QrzClient.cs" />
     <Compile Include="MainSettings.cs" />
     <Compile Include="MediaSources\Longmynd\LongmyndMqtt.cs" />
     <Compile Include="MediaSources\Longmynd\LongmyndProperties.cs" />
@@ -332,6 +330,7 @@
     <Compile Include="SettingsManagement\SelectionAttribute.cs" />
     <Compile Include="SettingsManagement\SettingsFormBuilder.cs" />
     <Compile Include="Transmit\F5OEOPlutoControl.cs" />
+    <Compile Include="Transmit\PlutoTransmitter.cs" />
     <Compile Include="Transmit\PlutoControl.cs">
       <SubType>Form</SubType>
     </Compile>
@@ -389,6 +388,11 @@
       <SubType>Component</SubType>
     </Compile>
     <Compile Include="Utilities\CommonFunctions.cs" />
+    <Compile Include="Utilities\CallsignParser.cs" />
+    <Compile Include="Utilities\CrashReporter.cs" />
+    <Compile Include="Utilities\Bandplan.cs" />
+    <Compile Include="Qso\QsoRecord.cs" />
+    <Compile Include="Qso\AdifExport.cs" />
     <Compile Include="Utilities\Theme.cs" />
     <Compile Include="Utilities\PropertyDescriptors.cs" />
     <Compile Include="Utilities\DynamicPropertyGroups.cs" />

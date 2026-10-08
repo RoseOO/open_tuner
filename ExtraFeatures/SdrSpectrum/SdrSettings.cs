@@ -73,6 +73,9 @@ namespace opentuner.ExtraFeatures.SdrSpectrum
         public SdrDemodMode DemodMode = SdrDemodMode.USB;
         public int AudioVolume = 70;              // 0..100
         public int AudioOffsetHz = 0;             // BFO offset within the tuned passband
+        public bool AudioFilterEnabled = true;    // post-demod audio low-pass
+        public int AudioFilterHz = 3000;          // low-pass cutoff
+        public int DeemphasisUs = 0;              // 0 = off, else time constant (e.g. 50/75 for FM)
 
         // convenience presets (Hz)
         public uint BroadbandCenterHz = 741500000;      // 741.5 MHz

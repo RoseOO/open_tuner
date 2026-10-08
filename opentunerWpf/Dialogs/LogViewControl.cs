@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.IO;
 using System.Linq;
 using System.Windows;
@@ -45,7 +45,7 @@ namespace OpenTuner.Wpf.Dialogs
             };
             Grid.SetRow(bar, 0);
             var sp = new StackPanel { Orientation = Orientation.Horizontal };
-            var refresh = new Button { Content = "Refresh", Width = 84, Margin = new Thickness(0, 0, 8, 0) };
+            var refresh = new Button { Content = LocalizationManager.Get("btn.refresh"), Width = 84, Margin = new Thickness(0, 0, 8, 0) };
             refresh.Click += (s, e) => { _readPos = 0; _currentFile = ""; _log.Clear(); Tail(); };
             var open = new Button { Content = "Open log folder", Width = 130, Margin = new Thickness(0, 0, 8, 0) };
             open.Click += (s, e) => { try { System.Diagnostics.Process.Start(LogDir()); } catch { } };

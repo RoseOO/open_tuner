@@ -30,7 +30,11 @@ namespace OpenTuner.Wpf.Players
         public WpfVlcMediaPlayer(LibVLCSharp.WPF.VideoView videoView)
         {
             if (_libVlc == null)
-                _libVlc = new LibVLC("--aout=directsound", "--no-video-title-show");
+                _libVlc = new LibVLC(
+                    "--aout=directsound",
+                    "--no-video-title-show",
+                    "--file-caching=1000",
+                    "--clock-jitter=0");
 
             _videoView = videoView;
         }
@@ -80,6 +84,9 @@ namespace OpenTuner.Wpf.Players
 
             var cfg = new MediaConfiguration { EnableHardwareDecoding = false };
             _media.AddOption(cfg);
+            _media.AddOption(":live-caching=1500");
+            _media.AddOption(":network-caching=1500");
+            _media.AddOption(":clock-jitter=0");
 
             _mediaPlayer = new MediaPlayer(_libVlc)
             {

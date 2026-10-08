@@ -12,53 +12,87 @@
 
     <DockPanel>
 
+        <Border DockPanel.Dock="Bottom" Background="{DynamicResource SurfaceBackground}"
+                BorderBrush="{DynamicResource Border}" BorderThickness="0,1,0,0">
+            <Grid Margin="10,3,10,3">
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="Auto" />
+                    <ColumnDefinition Width="Auto" />
+                    <ColumnDefinition Width="Auto" />
+                    <ColumnDefinition Width="*" />
+                    <ColumnDefinition Width="Auto" />
+                    <ColumnDefinition Width="Auto" />
+                    <ColumnDefinition Width="Auto" />
+                </Grid.ColumnDefinitions>
+                <TextBlock x:Name="statusSource" Grid.Column="0" Foreground="{DynamicResource TextSecondary}" Text="{DynamicResource mw.status.source}" Margin="0,0,16,0" />
+                <TextBlock x:Name="statusDevice" Grid.Column="1" Foreground="{DynamicResource TextSecondary}" Text="{DynamicResource mw.status.device}" Margin="0,0,16,0" />
+                <TextBlock x:Name="statusLock" Grid.Column="2" Text="{DynamicResource mw.status.lock}" Margin="0,0,16,0" />
+                <TextBlock x:Name="statusDetail" Grid.Column="3" Foreground="{DynamicResource TextSecondary}" Text="" TextTrimming="CharacterEllipsis" />
+                <TextBlock x:Name="statusRec" Grid.Column="4" Text="" Margin="0,0,16,0" FontWeight="SemiBold" />
+                <TextBlock x:Name="statusStream" Grid.Column="5" Text="" Margin="0,0,16,0" FontWeight="SemiBold" />
+                <TextBlock x:Name="statusDisk" Grid.Column="6" Foreground="{DynamicResource TextSecondary}" Text="{DynamicResource mw.status.disk}" />
+            </Grid>
+        </Border>
+
         <Menu x:Name="mainMenu" DockPanel.Dock="Top" Padding="6,2">
-            <MenuItem Header="Open Tuner">
-                <MenuItem Header="Settings..." Click="Settings_Click" />
-                <MenuItem Header="Manage Frequency Presets..." Click="Presets_Click" />
-                <MenuItem Header="Disconnect" Click="Disconnect_Click" />
+            <MenuItem x:Name="menuRoot" Header="{DynamicResource mw.menu.open}">
+                <MenuItem Header="{DynamicResource mw.menu.settings}" Click="Settings_Click" />
+                <MenuItem Header="{DynamicResource mw.menu.presets}" Click="Presets_Click" />
+                <MenuItem Header="{DynamicResource mw.menu.disconnect}" Click="Disconnect_Click" />
                 <Separator />
-                <MenuItem x:Name="menuDarkMode" Header="Dark mode" IsCheckable="True" Click="DarkMode_Click" />
+                <MenuItem x:Name="menuDarkMode" Header="{DynamicResource mw.menu.dark}" IsCheckable="True" Click="DarkMode_Click" />
+                <MenuItem x:Name="menuHighContrast" Header="{DynamicResource mw.menu.contrast}" IsCheckable="True" Click="HighContrast_Click" />
+                <MenuItem x:Name="menuLanguage" Header="{DynamicResource mw.menu.language}" />
                 <Separator />
-                <MenuItem Header="Quit" Click="Quit_Click" />
+                <MenuItem Header="{DynamicResource mw.menu.quit}" Click="Quit_Click" />
             </MenuItem>
-            <MenuItem Header="View">
-                <MenuItem Header="Tune to Frequency..." Click="Tune_Click" />
+            <MenuItem x:Name="menuView" Header="{DynamicResource mw.menu.view}">
+                <MenuItem Header="{DynamicResource mw.menu.tune}" Click="Tune_Click" />
                 <Separator />
-                <MenuItem Header="Full Screen" Click="FullScreen_Click" InputGestureText="F11" />
-                <MenuItem Header="Two-tuner layout">
-                    <MenuItem x:Name="menuSideBySide" Header="Side by side" IsCheckable="True" IsChecked="True" Click="LayoutSideBySide_Click" />
-                    <MenuItem x:Name="menuStacked" Header="Stacked" IsCheckable="True" Click="LayoutStacked_Click" />
+                <MenuItem Header="{DynamicResource mw.menu.fullscreen}" Click="FullScreen_Click" InputGestureText="F11" />
+                <MenuItem Header="{DynamicResource mw.menu.layout}">
+                    <MenuItem x:Name="menuLayout1" Header="{DynamicResource mw.layout.1}" IsCheckable="True" Click="LayoutPreset_Click" Tag="1" />
+                    <MenuItem x:Name="menuLayout2Side" Header="{DynamicResource mw.layout.2side}" IsCheckable="True" IsChecked="True" Click="LayoutPreset_Click" Tag="2-side" />
+                    <MenuItem x:Name="menuLayout2Stack" Header="{DynamicResource mw.layout.2stack}" IsCheckable="True" Click="LayoutPreset_Click" Tag="2-stack" />
+                    <MenuItem x:Name="menuLayout4" Header="{DynamicResource mw.layout.4quad}" IsCheckable="True" Click="LayoutPreset_Click" Tag="4-quad" />
                 </MenuItem>
                 <Separator />
-                <MenuItem Header="Hide Properties" Click="HideProps_Click" />
-                <MenuItem Header="Hide Spectrum" Click="HideSpectrum_Click" />
+                <MenuItem Header="{DynamicResource mw.menu.hideprops}" Click="HideProps_Click" />
+                <MenuItem Header="{DynamicResource mw.menu.hidespectrum}" Click="HideSpectrum_Click" />
                 <Separator />
-                <MenuItem Header="Debug Log..." Click="DebugLog_Click" />
+                <MenuItem Header="{DynamicResource mw.menu.shortcuts}" Click="Shortcuts_Click" InputGestureText="F1" />
+                <MenuItem Header="{DynamicResource mw.menu.debuglog}" Click="DebugLog_Click" />
             </MenuItem>
-            <MenuItem Header="Features">
-                <MenuItem Header="MQTT Client Settings..." Click="MqttSettings_Click" />
-                <MenuItem Header="QuickTune Settings..." Click="QuickTuneSettings_Click" />
-                <MenuItem Header="DATV Reporter Settings..." Click="DatvSettings_Click" />
-                <MenuItem Header="Web Chat Settings..." Click="WebChatSettings_Click" />
+            <MenuItem x:Name="menuFeatures" Header="{DynamicResource mw.menu.features}">
+                <MenuItem Header="{DynamicResource mw.menu.mqttsettings}" Click="MqttSettings_Click" />
+                <MenuItem Header="{DynamicResource mw.menu.quicktunesettings}" Click="QuickTuneSettings_Click" />
+                <MenuItem Header="{DynamicResource mw.menu.datvsettings}" Click="DatvSettings_Click" />
+                <MenuItem Header="{DynamicResource mw.menu.webchatsettings}" Click="WebChatSettings_Click" />
+                <MenuItem Header="{DynamicResource mw.menu.qrzsettings}" Click="QrzSettings_Click" />
                 <Separator />
-                <MenuItem Header="Web Chat..." Click="WebChat_Click" />
-                <MenuItem Header="PicoTuner (WH) Broadcast Listener..." Click="BroadcastListener_Click" />
-                <MenuItem Header="Hardware Info..." Click="HardwareInfo_Click" />
-                <MenuItem Header="External Tools..." Click="ExternalTools_Click" />
-                <MenuItem Header="Pluto Control..." Click="PlutoControl_Click" />
+                <MenuItem Header="{DynamicResource mw.menu.webchat}" Click="WebChat_Click" />
+                <MenuItem Header="{DynamicResource mw.menu.broadcastlistener}" Click="BroadcastListener_Click" />
+                <MenuItem Header="{DynamicResource mw.menu.hardwareinfo}" Click="HardwareInfo_Click" />
+                <MenuItem Header="{DynamicResource mw.menu.externaltools}" Click="ExternalTools_Click" />
+                <MenuItem Header="{DynamicResource mw.menu.pluto}" Click="PlutoControl_Click" />
+                <Separator />
+                <MenuItem Header="{DynamicResource mw.menu.bandscan}" Click="BandScan_Click" />
+                <MenuItem Header="{DynamicResource mw.menu.beacons}" Click="Beacons_Click" />
+                <MenuItem Header="{DynamicResource mw.menu.qsolog}" Click="QsoLog_Click" />
+                <MenuItem Header="{DynamicResource mw.menu.recordmanager}" Click="RecordManager_Click" />
+                <MenuItem Header="{DynamicResource mw.menu.gallery}" Click="Gallery_Click" />
             </MenuItem>
-            <MenuItem Header="Help">
-                <MenuItem Header="Documentation" Tag="https://www.zr6tg.co.za/opentuner-documentation/" Click="Link_Click" />
-                <MenuItem Header="OpenTuner Updates" Tag="https://www.zr6tg.co.za/open-tuner/" Click="Link_Click" />
+            <MenuItem x:Name="menuHelp" Header="{DynamicResource mw.menu.help}">
+                <MenuItem Header="{DynamicResource mw.menu.documentation}" Tag="https://www.zr6tg.co.za/opentuner-documentation/" Click="Link_Click" />
+                <MenuItem Header="{DynamicResource mw.menu.updates}" Tag="https://www.zr6tg.co.za/open-tuner/" Click="Link_Click" />
                 <Separator />
-                <MenuItem Header="GitHub Issues" Tag="https://github.com/tomvdb/open_tuner/issues" Click="Link_Click" />
-                <MenuItem Header="BATC Forums" Tag="https://forum.batc.org.uk/viewforum.php?f=142" Click="Link_Click" />
-                <MenuItem Header="British Amateur Television Club" Tag="https://batc.org.uk/" Click="Link_Click" />
+                <MenuItem Header="{DynamicResource mw.menu.github}" Tag="https://github.com/tomvdb/open_tuner/issues" Click="Link_Click" />
+                <MenuItem Header="{DynamicResource mw.menu.forums}" Tag="https://forum.batc.org.uk/viewforum.php?f=142" Click="Link_Click" />
+                <MenuItem Header="{DynamicResource mw.menu.batc}" Tag="https://batc.org.uk/" Click="Link_Click" />
                 <Separator />
-                <MenuItem Header="Add 2nd TS to Minitiouner Article" Tag="https://www.zr6tg.co.za/adding-2nd-transport-to-batc-minitiouner-v2/" Click="Link_Click" />
-                <MenuItem Header="PicoTuner Article" Tag="https://www.zr6tg.co.za/2024/02/11/picotuner-an-experimental-dual-ts-alternative/" Click="Link_Click" />
-                <MenuItem Header="Support (Buy me a coffee)" Tag="https://www.buymeacoffee.com/zr6tg/" Click="Link_Click" />
+                <MenuItem Header="{DynamicResource mw.menu.article2ndts}" Tag="https://www.zr6tg.co.za/adding-2nd-transport-to-batc-minitiouner-v2/" Click="Link_Click" />
+                <MenuItem Header="{DynamicResource mw.menu.articlepico}" Tag="https://www.zr6tg.co.za/2024/02/11/picotuner-an-experimental-dual-ts-alternative/" Click="Link_Click" />
+                <MenuItem Header="{DynamicResource mw.menu.support}" Tag="https://www.buymeacoffee.com/zr6tg/" Click="Link_Click" />
             </MenuItem>
         </Menu>
 
@@ -75,30 +109,32 @@
 
                     <Border x:Name="sourceSelCard" Style="{StaticResource Card}">
                         <StackPanel>
-                            <TextBlock Text="SOURCE SELECTION" Style="{StaticResource CardTitle}" />
+                            <TextBlock Text="{DynamicResource mw.card.source}" Style="{StaticResource CardTitle}" />
                             <ComboBox x:Name="comboSources" Margin="0,12,0,0"
+                                      AutomationProperties.Name="Source selection"
                                       SelectionChanged="ComboSources_SelectionChanged" />
                             <TextBlock x:Name="txtSourceInfo" Style="{StaticResource CardSubtitle}"
                                        Margin="0,12,0,0" TextWrapping="Wrap" />
                             <StackPanel Orientation="Horizontal" Margin="0,16,0,0">
-                                <Button Content="Connect" Style="{StaticResource PrimaryButton}"
-                                        Width="120" Click="Connect_Click" />
-                                <Button Content="Source Settings" Margin="10,0,0,0" Click="SourceSettings_Click" />
+                                <Button Content="{DynamicResource mw.connect}" Style="{StaticResource PrimaryButton}"
+                                        Width="120" AutomationProperties.Name="Connect to source" Click="Connect_Click" />
+                                <Button Content="{DynamicResource mw.sourcesettings}" Margin="10,0,0,0"
+                                        AutomationProperties.Name="Source settings" Click="SourceSettings_Click" />
                             </StackPanel>
                         </StackPanel>
                     </Border>
 
                     <Border x:Name="extraCard" Style="{StaticResource Card}" Margin="0,12,0,0">
                         <StackPanel>
-                            <TextBlock Text="EXTRA FEATURES" Style="{StaticResource CardTitle}" />
+                            <TextBlock Text="{DynamicResource mw.card.extra}" Style="{StaticResource CardTitle}" />
 
                             <Grid Margin="0,12,0,0">
                                 <Grid.ColumnDefinitions>
                                     <ColumnDefinition Width="*" />
                                     <ColumnDefinition Width="Auto" />
                                 </Grid.ColumnDefinitions>
-                                <CheckBox x:Name="chkBatcSpectrum" Content="BATC Spectrum (QO-100)" VerticalAlignment="Center" />
-                                <Button Grid.Column="1" Content="Info" Padding="8,2" Click="BatcSpectrumInfo_Click" />
+                                <CheckBox x:Name="chkBatcSpectrum" Content="{DynamicResource mw.chk.batcspectrum}" VerticalAlignment="Center" />
+                                <Button Grid.Column="1" Content="{DynamicResource mw.info}" Padding="8,2" Click="BatcSpectrumInfo_Click" />
                             </Grid>
 
                             <Grid Margin="0,8,0,0">
@@ -106,8 +142,8 @@
                                     <ColumnDefinition Width="*" />
                                     <ColumnDefinition Width="Auto" />
                                 </Grid.ColumnDefinitions>
-                                <CheckBox x:Name="chkBatcChat" Content="BATC Chat (QO-100)" VerticalAlignment="Center" />
-                                <Button Grid.Column="1" Content="Settings" Padding="8,2" Click="WebChatSettings_Click" />
+                                <CheckBox x:Name="chkBatcChat" Content="{DynamicResource mw.chk.batchat}" VerticalAlignment="Center" />
+                                <Button Grid.Column="1" Content="{DynamicResource mw.settings}" Padding="8,2" Click="WebChatSettings_Click" />
                             </Grid>
 
                             <Grid Margin="0,8,0,0">
@@ -115,8 +151,8 @@
                                     <ColumnDefinition Width="*" />
                                     <ColumnDefinition Width="Auto" />
                                 </Grid.ColumnDefinitions>
-                                <CheckBox x:Name="chkMqtt" Content="MQTT Client" VerticalAlignment="Center" />
-                                <Button Grid.Column="1" Content="Settings" Padding="8,2" Click="MqttSettings_Click" />
+                                <CheckBox x:Name="chkMqtt" Content="{DynamicResource mw.chk.mqtt}" VerticalAlignment="Center" />
+                                <Button Grid.Column="1" Content="{DynamicResource mw.settings}" Padding="8,2" Click="MqttSettings_Click" />
                             </Grid>
 
                             <Grid Margin="0,8,0,0">
@@ -124,8 +160,8 @@
                                     <ColumnDefinition Width="*" />
                                     <ColumnDefinition Width="Auto" />
                                 </Grid.ColumnDefinitions>
-                                <CheckBox x:Name="chkQuicktune" Content="Quick Tune Control" VerticalAlignment="Center" />
-                                <Button Grid.Column="1" Content="Settings" Padding="8,2" Click="QuickTuneSettings_Click" />
+                                <CheckBox x:Name="chkQuicktune" Content="{DynamicResource mw.chk.quicktune}" VerticalAlignment="Center" />
+                                <Button Grid.Column="1" Content="{DynamicResource mw.settings}" Padding="8,2" Click="QuickTuneSettings_Click" />
                             </Grid>
 
                             <Grid Margin="0,8,0,0">
@@ -133,8 +169,8 @@
                                     <ColumnDefinition Width="*" />
                                     <ColumnDefinition Width="Auto" />
                                 </Grid.ColumnDefinitions>
-                                <CheckBox x:Name="chkDatvReporter" Content="DATV Reporter" VerticalAlignment="Center" />
-                                <Button Grid.Column="1" Content="Settings" Padding="8,2" Click="DatvSettings_Click" />
+                                <CheckBox x:Name="chkDatvReporter" Content="{DynamicResource mw.chk.datv}" VerticalAlignment="Center" />
+                                <Button Grid.Column="1" Content="{DynamicResource mw.settings}" Padding="8,2" Click="DatvSettings_Click" />
                             </Grid>
 
                             <Grid Margin="0,8,0,0">
@@ -142,8 +178,17 @@
                                     <ColumnDefinition Width="*" />
                                     <ColumnDefinition Width="Auto" />
                                 </Grid.ColumnDefinitions>
-                                <CheckBox x:Name="chkSdrSpectrum" Content="SDR Spectrum" VerticalAlignment="Center" />
-                                <Button Grid.Column="1" Content="Settings" Padding="8,2" Click="SdrSettings_Click" />
+                                <CheckBox x:Name="chkSdrSpectrum" Content="{DynamicResource mw.chk.sdr}" VerticalAlignment="Center" />
+                                <Button Grid.Column="1" Content="{DynamicResource mw.settings}" Padding="8,2" Click="SdrSettings_Click" />
+                            </Grid>
+
+                            <Grid Margin="0,8,0,0">
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="*" />
+                                    <ColumnDefinition Width="Auto" />
+                                </Grid.ColumnDefinitions>
+                                <CheckBox x:Name="chkQrz" Content="{DynamicResource mw.chk.qrz}" VerticalAlignment="Center" />
+                                <Button Grid.Column="1" Content="{DynamicResource mw.settings}" Padding="8,2" Click="QrzSettings_Click" />
                             </Grid>
                         </StackPanel>
                     </Border>
@@ -151,7 +196,7 @@
                     <Border x:Name="propCard" Style="{StaticResource Card}" Margin="0,12,0,0"
                             Visibility="Collapsed">
                         <StackPanel>
-                            <TextBlock Text="PROPERTIES" Style="{StaticResource CardTitle}" />
+                            <TextBlock Text="{DynamicResource mw.card.properties}" Style="{StaticResource CardTitle}" />
                             <ContentControl x:Name="propHost" Margin="0,10,0,0" />
                         </StackPanel>
                     </Border>
@@ -173,7 +218,7 @@
                 <Border Grid.Row="0" Background="{DynamicResource VideoBackground}">
                     <Grid>
                         <Grid x:Name="videoArea" />
-                        <TextBlock x:Name="txtVideo" Text="No source connected"
+                        <TextBlock x:Name="txtVideo" Text="{DynamicResource mw.nosource}"
                                    Foreground="#7A828C" HorizontalAlignment="Center" VerticalAlignment="Center" />
                     </Grid>
                 </Border>
@@ -181,12 +226,12 @@
                 <GridSplitter x:Name="bottomSplitter" Grid.Row="1" Height="4" HorizontalAlignment="Stretch"
                               Background="{DynamicResource Border}" />
 
-                <TabControl Grid.Row="2" x:Name="tabsTools">
-                    <TabItem Header="BATC Spectrum">
+                <TabControl Grid.Row="2" x:Name="tabsTools" SelectionChanged="TabsTools_SelectionChanged">
+                    <TabItem Header="{DynamicResource mw.tab.batc}">
                         <ContentControl x:Name="batcHost" Background="{DynamicResource VideoBackground}"
                                         HorizontalContentAlignment="Stretch" VerticalContentAlignment="Stretch" />
                     </TabItem>
-                    <TabItem Header="SDR Spectrum">
+                    <TabItem Header="{DynamicResource mw.tab.sdr}">
                         <Grid Background="{DynamicResource VideoBackground}">
                             <Grid.RowDefinitions>
                                 <RowDefinition Height="Auto" />
@@ -194,11 +239,11 @@
                             </Grid.RowDefinitions>
 
                             <StackPanel Orientation="Horizontal" Grid.Row="0" Margin="8,6">
-                                <TextBlock Text="RX" VerticalAlignment="Center" Margin="0,0,6,0"
+                                <TextBlock Text="{DynamicResource mw.rx}" VerticalAlignment="Center" Margin="0,0,6,0"
                                            Foreground="{DynamicResource TextSecondary}" />
                                 <ComboBox x:Name="comboSdrRx" Width="84" SelectionChanged="SdrRx_Changed" />
-                                <Button Content="Tune strongest" Margin="10,0,0,0" Click="SdrStrongest_Click" />
-                                <Button Content="SDR Settings..." Margin="6,0,0,0" Click="SdrSettings_Click" />
+                                <Button Content="{DynamicResource mw.tunestrongest}" Margin="10,0,0,0" Click="SdrStrongest_Click" />
+                                <Button Content="{DynamicResource mw.sdrsettings}" Margin="6,0,0,0" Click="SdrSettings_Click" />
                                 <TextBlock x:Name="txtSdrStatus" VerticalAlignment="Center" Margin="12,0,0,0"
                                            Foreground="{DynamicResource TextSecondary}" />
                             </StackPanel>
@@ -207,7 +252,35 @@
                                             HorizontalContentAlignment="Stretch" VerticalContentAlignment="Stretch" />
                         </Grid>
                     </TabItem>
-                    <TabItem Header="Debug">
+                    <TabItem Header="{DynamicResource mw.tab.signal}">
+                        <Grid Background="{DynamicResource SurfaceBackground}">
+                            <Grid.RowDefinitions>
+                                <RowDefinition Height="Auto" />
+                                <RowDefinition Height="*" />
+                            </Grid.RowDefinitions>
+                            <StackPanel Orientation="Horizontal" Grid.Row="0" Margin="8,6">
+                                <TextBlock Text="{DynamicResource mw.rx}" VerticalAlignment="Center" Margin="0,0,6,0"
+                                           Foreground="{DynamicResource TextSecondary}" />
+                                <ComboBox x:Name="comboSignalRx" Width="84" SelectionChanged="SignalRx_Changed" />
+                                <TextBlock Text="{DynamicResource mw.graph.show}" VerticalAlignment="Center" Margin="16,0,6,0"
+                                           Foreground="{DynamicResource TextSecondary}" />
+                                <CheckBox x:Name="chkGraphMer" Content="{DynamicResource mw.graph.mer}" IsChecked="True" VerticalAlignment="Center" Margin="0,0,10,0" Click="GraphSeries_Click" />
+                                <CheckBox x:Name="chkGraphMargin" Content="{DynamicResource mw.graph.margin}" IsChecked="True" VerticalAlignment="Center" Margin="0,0,10,0" Click="GraphSeries_Click" />
+                                <CheckBox x:Name="chkGraphBer" Content="{DynamicResource mw.graph.ber}" IsChecked="True" VerticalAlignment="Center" Margin="0,0,10,0" Click="GraphSeries_Click" />
+                                <TextBlock Text="{DynamicResource mw.graph.window}" VerticalAlignment="Center" Margin="16,0,6,0"
+                                           Foreground="{DynamicResource TextSecondary}" />
+                                <ComboBox x:Name="comboGraphWindow" Width="96" SelectionChanged="GraphWindow_Changed" />
+                                <Button Content="{DynamicResource mw.clear}" Margin="12,0,0,0" Click="SignalClear_Click" />
+                            </StackPanel>
+                            <ContentControl x:Name="signalHost" Grid.Row="1"
+                                            HorizontalContentAlignment="Stretch" VerticalContentAlignment="Stretch" />
+                        </Grid>
+                    </TabItem>
+                    <TabItem x:Name="tabQso" Header="{DynamicResource mw.tab.qso}">
+                        <ContentControl x:Name="qsoHost" Background="{DynamicResource WindowBackground}"
+                                        HorizontalContentAlignment="Stretch" VerticalContentAlignment="Stretch" />
+                    </TabItem>
+                    <TabItem Header="{DynamicResource mw.tab.debug}">
                         <ContentControl x:Name="debugHost" Background="{DynamicResource VideoBackground}"
                                         HorizontalContentAlignment="Stretch" VerticalContentAlignment="Stretch" />
                     </TabItem>

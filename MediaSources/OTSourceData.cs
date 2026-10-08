@@ -7,9 +7,11 @@
         public string demode_state = "";
         public double db_margin = 0.0;
         public double mer = 0.0;
+        public double ber = 0.0;
         public long frequency = 0;
         public int symbol_rate = 0;
         public string service_name = "";
+        public string service_provider = "";
         public string modcode = "";
         public int volume = 0;
         public bool streaming = false;

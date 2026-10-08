@@ -38,7 +38,7 @@ namespace opentuner.MediaSources.Longmynd
         Thread ts_thread_t = null;
         TSThread ts_thread;
 
-        // todo: fix double buffer read
+        // UDP receive buffer feeds the TS thread, which copies into ts_data_queue (double buffered)
         private CircularBuffer udp_buffer = new CircularBuffer(GlobalDefines.CircularBufferStartingCapacity);
         public CircularBuffer ts_data_queue = new CircularBuffer(GlobalDefines.CircularBufferStartingCapacity);
 
@@ -167,10 +167,9 @@ namespace opentuner.MediaSources.Longmynd
         {
             if (!playing) { return; }
 
-            for (int c = 0; c < e.Length; c++)
-            {
-                udp_buffer.Enqueue(e[c]);
-            }
+            if (e != null && e.Length > 0)
+                udp_buffer.Enqueue(e);
+
             ts_thread.NewDataPresent();
         }
 
@@ -205,7 +204,7 @@ namespace opentuner.MediaSources.Longmynd
             udp_client.Connect();
 
             ts_thread = new TSThread(ts_data_queue, FlushTS2, ReadTS2, "LM TS");
-            ts_thread_t = new Thread(ts_thread.worker_thread);
+            ts_thread_t = new Thread(ts_thread.worker_thread) { IsBackground = true, Name = "LM TS" };
             ts_thread_t.Start();
 
             BuildSourceProperties();
@@ -240,21 +239,18 @@ namespace opentuner.MediaSources.Longmynd
 
         byte ReadTS2(ref byte[] data, ref uint dataRead)
         {
-            int read = udp_buffer.Count;
-            uint written = 0;
+            dataRead = 0;
 
-            if (udp_buffer.Count > 4000) 
-            {
-                read = 4000;
-            }
+            if (data == null || data.Length == 0)
+                return 1;
 
-            for (int c = 0; c < read; c++)
-            {
-                data[c] = udp_buffer.Dequeue();
-                written += 1;
-            }
+            int read = Math.Min(udp_buffer.Count, data.Length);
+            if (read <= 0)
+                return 0;
 
-            dataRead = written;
+            byte[] chunk = udp_buffer.DequeueBytes(read);
+            Array.Copy(chunk, data, chunk.Length);
+            dataRead = (uint)chunk.Length;
 
             return 0;
         }

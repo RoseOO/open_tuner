@@ -133,13 +133,15 @@ namespace opentuner
 
                         if (dataRead > 0)
                         {
-                            for (int c = 0; c < dataRead; c++)
+                            // copy the chunk once and enqueue it as a block per consumer
+                            // (far faster than enqueuing byte-by-byte under a lock)
+                            byte[] chunk = new byte[dataRead];
+                            Array.Copy(data, chunk, (int)dataRead);
+
+                            for (int consumers = 0; consumers < registered_consumers.Count; consumers++)
                             {
-                                for (int consumers = 0; consumers < registered_consumers.Count; consumers++)
-                                {
-                                    if (registered_consumers[consumers] != null)
-                                        registered_consumers[consumers].Enqueue(data[c]);
-                                }
+                                if (registered_consumers[consumers] != null)
+                                    registered_consumers[consumers].Enqueue(chunk);
                             }
                         }
                     }

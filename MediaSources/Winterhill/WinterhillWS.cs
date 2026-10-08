@@ -142,6 +142,7 @@ namespace opentuner.MediaSources.WinterHill
         public string service_provider_name;
         public string mer;
         public string dbmargin;
+        public string ber;
         public string frequency;
         public string symbol_rate;
         public string modcod;

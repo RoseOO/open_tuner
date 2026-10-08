@@ -1,7 +1,10 @@
 ﻿using opentuner.MediaSources;
+using Newtonsoft.Json;
 using Serilog;
 using System;
+using System.Globalization;
 using System.IO;
+using System.Text;
 using System.Threading;
 
 namespace opentuner
@@ -44,6 +47,19 @@ namespace opentuner
 
         string media_path = "";
 
+        // ----- options (set by the UI before/while recording) -----
+        public string FilenameTemplate { get; set; } = "{callsign}_{service}_{freq}_{date}_{time}";
+        public bool WriteSidecar { get; set; } = true;
+        public long MaxSizeBytes { get; set; } = 0;        // 0 = unlimited
+        public TimeSpan MaxDuration { get; set; } = TimeSpan.Zero;   // Zero = unlimited
+
+        // Last signal metadata seen for this tuner (used for the filename + sidecar).
+        public OTSourceData LatestData { get; set; }
+
+        private long _bytesWritten = 0;
+        private DateTime _fileStartedUtc = DateTime.MinValue;
+        private int _splitIndex = 0;
+
         private volatile bool _running = false;
         private Thread _recorderThread = null;
         private readonly ManualResetEventSlim _wake = new ManualResetEventSlim(false);
@@ -79,6 +95,44 @@ namespace opentuner
             _recorderThread = null;
         }
 
+        public static string Sanitize(string value)
+        {
+            if (string.IsNullOrWhiteSpace(value))
+                return "unknown";
+
+            var sb = new StringBuilder(value.Length);
+            foreach (char c in value)
+                sb.Append(Array.IndexOf(Path.GetInvalidFileNameChars(), c) >= 0 || c == ' ' ? '_' : c);
+
+            string result = sb.ToString().Trim('_');
+            return string.IsNullOrEmpty(result) ? "unknown" : result;
+        }
+
+        private string BuildFilename()
+        {
+            var d = LatestData;
+            string service = d?.service_name ?? "";
+            string callsign = opentuner.Utilities.CallsignParser.Extract(service) ?? "unknown";
+            string freq = d != null && d.frequency > 0
+                ? (d.frequency / 1000.0).ToString("F3", CultureInfo.InvariantCulture)
+                : "0";
+
+            string name = FilenameTemplate ?? "{callsign}_{service}_{freq}_{date}_{time}";
+            name = name
+                .Replace("{callsign}", Sanitize(callsign))
+                .Replace("{service}", Sanitize(service))
+                .Replace("{freq}", freq)
+                .Replace("{sr}", (d?.symbol_rate ?? 0).ToString())
+                .Replace("{date}", DateTime.Now.ToString("yyyy-MM-dd"))
+                .Replace("{time}", DateTime.Now.ToString("HH-mm-ss"))
+                .Replace("{tuner}", (_id + 1).ToString());
+
+            if (_splitIndex > 0)
+                name += "_" + _splitIndex.ToString("D3");
+
+            return Sanitize(name) + ".ts";
+        }
+
         private void StopRecording(ref BinaryWriter binWriter)
         {
             try
@@ -99,29 +153,65 @@ namespace opentuner
                 binWriter = null;
             }
 
+            WriteSidecarFile();
+
             recording = false;
             CurrentFilename = "";
+            _bytesWritten = 0;
             onRecordStatusChange?.Invoke(this, false);
+        }
+
+        private void WriteSidecarFile()
+        {
+            if (!WriteSidecar || string.IsNullOrEmpty(CurrentFilename))
+                return;
+
+            try
+            {
+                var d = LatestData;
+                var meta = new
+                {
+                    file = Path.GetFileName(CurrentFilename),
+                    recorded_utc = _fileStartedUtc.ToString("o"),
+                    tuner = _id + 1,
+                    callsign = opentuner.Utilities.CallsignParser.Extract(d?.service_name ?? ""),
+                    service_name = d?.service_name,
+                    service_provider = "",
+                    frequency_khz = d?.frequency ?? 0,
+                    frequency_mhz = d != null ? Math.Round(d.frequency / 1000.0, 4) : 0,
+                    symbol_rate = d?.symbol_rate ?? 0,
+                    mer = d?.mer ?? 0,
+                    db_margin = d?.db_margin ?? 0,
+                    device = ""
+                };
+
+                File.WriteAllText(CurrentFilename + ".json", JsonConvert.SerializeObject(meta, Formatting.Indented));
+            }
+            catch (Exception ex)
+            {
+                Log.Warning("Unable to write record sidecar: " + ex.Message);
+            }
         }
 
         private bool StartRecording(ref BinaryWriter binWriter)
         {
             try
             {
-                string filename = DateTime.Now.ToString("yyyy-dd-M--HH-mm-ss") + "_" + _id + ".ts";
+                string filename = BuildFilename();
 
-                // if path doesn't exist then save in same folder
-                if (!string.IsNullOrEmpty(media_path) && Directory.Exists(media_path))
-                {
-                    filename = Path.Combine(media_path, DateTime.Now.ToString("yyyy-dd-M--HH-mm-ss") + "_" + _id + ".ts");
-                }
+                if (!string.IsNullOrEmpty(media_path) && !Directory.Exists(media_path))
+                    Directory.CreateDirectory(media_path);
 
-                binWriter = new BinaryWriter(File.Open(filename, FileMode.Create));
+                string fullPath = Path.Combine(media_path, filename);
+
+                binWriter = new BinaryWriter(File.Open(fullPath, FileMode.Create));
 
                 recording = true;
-                CurrentFilename = filename;
+                CurrentFilename = fullPath;
+                _bytesWritten = 0;
+                _fileStartedUtc = DateTime.UtcNow;
 
-                Log.Information("Recording raw TS to " + filename);
+                Log.Information("Recording raw TS to " + fullPath);
 
                 onRecordStatusChange?.Invoke(this, true);
                 return true;
@@ -138,6 +228,18 @@ namespace opentuner
             }
         }
 
+        private bool ShouldSplit()
+        {
+            if (MaxSizeBytes > 0 && _bytesWritten >= MaxSizeBytes)
+                return true;
+
+            if (MaxDuration > TimeSpan.Zero && _fileStartedUtc != DateTime.MinValue &&
+                DateTime.UtcNow - _fileStartedUtc >= MaxDuration)
+                return true;
+
+            return false;
+        }
+
         public void worker_thread()
         {
             _running = true;
@@ -150,6 +252,7 @@ namespace opentuner
                 {
                     if (recording == false && record == true)
                     {
+                        _splitIndex = 0;
                         StartRecording(ref binWriter);
                         ts_data_queue.Clear();
                         ts_sync = true;
@@ -157,6 +260,15 @@ namespace opentuner
                     else if (recording == true && record == false)
                     {
                         StopRecording(ref binWriter);
+                    }
+                    else if (recording == true && ShouldSplit())
+                    {
+                        // close the current file and roll over to a new one
+                        StopRecording(ref binWriter);
+                        _splitIndex++;
+                        StartRecording(ref binWriter);
+                        ts_data_queue.Clear();
+                        ts_sync = true;
                     }
 
                     int ts_data_count = ts_data_queue.Count;
@@ -178,6 +290,7 @@ namespace opentuner
                                 if (ts_sync == false)
                                 {
                                     binWriter.Write(data);
+                                    _bytesWritten++;
                                 }
                             }
                         }

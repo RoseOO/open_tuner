@@ -787,6 +787,11 @@ namespace opentuner.MediaSources.WinterHill
                     double.TryParse(rx.mer, NumberStyles.Number, CultureInfo.InvariantCulture, out mer_d);
                     source_data.mer = mer_d;
 
+                    double ber_d = 0.0;
+                    double.TryParse(rx.ber, NumberStyles.Float, CultureInfo.InvariantCulture, out ber_d);
+                    source_data.ber = ber_d;
+                    source_data.modcode = rx.modcod;
+
                     //Log.Information(" * ROLF Test: " + (mer_d).ToString());
 
                     double db_margin_d = 0.0;
@@ -797,6 +802,7 @@ namespace opentuner.MediaSources.WinterHill
                     source_data.symbol_rate = symbol_rate_i;
                     source_data.demod_locked = (rx.scanstate == 2 || rx.scanstate == 3);
                     source_data.service_name = rx.service_name;
+                    source_data.service_provider = rx.service_provider_name;
 
                     if (_media_player.Count() > c)
                     {

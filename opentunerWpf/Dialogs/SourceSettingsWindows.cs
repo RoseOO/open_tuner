@@ -77,9 +77,9 @@ namespace OpenTuner.Wpf.Dialogs
             };
             DockPanel.SetDock(buttons, Dock.Bottom);
             var sp = new StackPanel { Orientation = Orientation.Horizontal, HorizontalAlignment = HorizontalAlignment.Right };
-            var cancel = new Button { Content = "Cancel", Width = 96, Margin = new Thickness(0, 0, 10, 0) };
+            var cancel = new Button { Content = LocalizationManager.Get("btn.cancel"), Width = 96, Margin = new Thickness(0, 0, 10, 0) };
             cancel.Click += (s, e) => { w.DialogResult = false; w.Close(); };
-            var save = new Button { Content = "Save", Width = 96 };
+            var save = new Button { Content = LocalizationManager.Get("btn.save"), Width = 96 };
             save.SetResourceReference(FrameworkElement.StyleProperty, "PrimaryButton");
             save.Click += (s, e) => onSave();
             sp.Children.Add(cancel);

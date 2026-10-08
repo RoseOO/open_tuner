@@ -465,7 +465,7 @@ namespace opentuner.MediaSources.Minitiouner
 
             // configure nim thread
             nim_thread = new NimThread(config_queue, hardware_interface, nim_status_feedback, false);
-            nim_thread_t = new Thread(nim_thread.worker_thread);
+            nim_thread_t = new Thread(nim_thread.worker_thread) { IsBackground = true, Name = "MinitiounerNimThread" };
 
 
 
