@@ -365,8 +365,10 @@ namespace OpenTuner.Wpf
 
             bottomSplitterRow.Height = new GridLength(0);
             bottomSplitter.Visibility = Visibility.Collapsed;
+            bottomRow.MinHeight = 0;                       // otherwise a 0 height is clamped to 140
             bottomRow.Height = new GridLength(0);
             tabsTools.Visibility = Visibility.Collapsed;
+            statusBar.Visibility = Visibility.Collapsed;   // truly fullscreen
 
             _soloFocus = focus;
             ApplyVideoLayout();
@@ -411,15 +413,18 @@ namespace OpenTuner.Wpf
 
             mainMenu.Visibility = Visibility.Visible;
 
-            leftColumn.MinWidth = 300;
-            leftColumn.Width = new GridLength(340);
-            leftSplitter.Visibility = Visibility.Visible;
-            leftPanel.Visibility = Visibility.Visible;
+            // restore the left column / tools panel, honouring the hide toggles
+            leftColumn.MinWidth = _propsHidden ? 0 : 300;
+            leftColumn.Width = new GridLength(_propsHidden ? 0 : 340);
+            leftSplitter.Visibility = _propsHidden ? Visibility.Collapsed : Visibility.Visible;
+            leftPanel.Visibility = _propsHidden ? Visibility.Collapsed : Visibility.Visible;
 
-            bottomSplitterRow.Height = new GridLength(4);
-            bottomSplitter.Visibility = Visibility.Visible;
-            bottomRow.Height = new GridLength(260);
-            tabsTools.Visibility = Visibility.Visible;
+            bottomSplitterRow.Height = _toolsHidden ? new GridLength(0) : new GridLength(4);
+            bottomSplitter.Visibility = _toolsHidden ? Visibility.Collapsed : Visibility.Visible;
+            bottomRow.MinHeight = _toolsHidden ? 0 : 140;
+            bottomRow.Height = _toolsHidden ? new GridLength(0) : new GridLength(260);
+            tabsTools.Visibility = _toolsHidden ? Visibility.Collapsed : Visibility.Visible;
+            statusBar.Visibility = Visibility.Visible;
 
             ApplyVideoLayout();
             Dispatcher.BeginInvoke(new Action(() => RefreshVideoOverlays()),
@@ -1691,8 +1696,46 @@ namespace OpenTuner.Wpf
             new OpenTuner.Wpf.Dialogs.DebugWindow { Owner = this }.Show();
         }
 
-        private void HideProps_Click(object sender, RoutedEventArgs e) { }
-        private void HideSpectrum_Click(object sender, RoutedEventArgs e) { }
+        private bool _toolsHidden;
+        private bool _propsHidden;
+
+        private void HideProps_Click(object sender, RoutedEventArgs e)
+        {
+            // collapse the whole left column (it holds the source/properties panel)
+            bool willShow = leftPanel.Visibility != Visibility.Visible;
+            _propsHidden = !willShow;
+
+            if (willShow)
+            {
+                leftColumn.MinWidth = 300;
+                leftColumn.Width = new GridLength(340);
+                leftSplitter.Visibility = Visibility.Visible;
+                leftPanel.Visibility = Visibility.Visible;
+            }
+            else
+            {
+                leftColumn.MinWidth = 0;
+                leftColumn.Width = new GridLength(0);
+                leftSplitter.Visibility = Visibility.Collapsed;
+                leftPanel.Visibility = Visibility.Collapsed;
+            }
+
+            menuHideProps.Header = LocalizationManager.Get(willShow ? "mw.menu.hideprops" : "mw.menu.showprops");
+        }
+
+        private void HideSpectrum_Click(object sender, RoutedEventArgs e)
+        {
+            _toolsHidden = !_toolsHidden;
+
+            // bottomRow has MinHeight=140 in XAML - clear it or a 0 height is clamped
+            bottomRow.MinHeight = _toolsHidden ? 0 : 140;
+            bottomRow.Height = _toolsHidden ? new GridLength(0) : new GridLength(260);
+            bottomSplitterRow.Height = _toolsHidden ? new GridLength(0) : new GridLength(4);
+            bottomSplitter.Visibility = _toolsHidden ? Visibility.Collapsed : Visibility.Visible;
+            tabsTools.Visibility = _toolsHidden ? Visibility.Collapsed : Visibility.Visible;
+
+            menuHideTools.Header = LocalizationManager.Get(_toolsHidden ? "mw.menu.showtools" : "mw.menu.hidetools");
+        }
 
         private void Docs_Click(object sender, RoutedEventArgs e)
         {
@@ -1771,6 +1814,14 @@ namespace OpenTuner.Wpf
 
             _settings.language = lang;
             SaveSettings();
+
+            // these two headers are set in code (not DynamicResource) - refresh them
+            try
+            {
+                menuHideProps.Header = LocalizationManager.Get(leftPanel.Visibility == Visibility.Visible ? "mw.menu.hideprops" : "mw.menu.showprops");
+                menuHideTools.Header = LocalizationManager.Get(_toolsHidden ? "mw.menu.showtools" : "mw.menu.hidetools");
+            }
+            catch { }
         }
 
         private void Shortcuts_Click(object sender, RoutedEventArgs e)

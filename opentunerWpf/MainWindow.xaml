@@ -12,7 +12,7 @@
 
     <DockPanel>
 
-        <Border DockPanel.Dock="Bottom" Background="{DynamicResource SurfaceBackground}"
+        <Border x:Name="statusBar" DockPanel.Dock="Bottom" Background="{DynamicResource SurfaceBackground}"
                 BorderBrush="{DynamicResource Border}" BorderThickness="0,1,0,0">
             <Grid Margin="10,3,10,3">
                 <Grid.ColumnDefinitions>
@@ -57,8 +57,8 @@
                     <MenuItem x:Name="menuLayout4" Header="{DynamicResource mw.layout.4quad}" IsCheckable="True" Click="LayoutPreset_Click" Tag="4-quad" />
                 </MenuItem>
                 <Separator />
-                <MenuItem Header="{DynamicResource mw.menu.hideprops}" Click="HideProps_Click" />
-                <MenuItem Header="{DynamicResource mw.menu.hidespectrum}" Click="HideSpectrum_Click" />
+                <MenuItem x:Name="menuHideProps" Header="{DynamicResource mw.menu.hideprops}" Click="HideProps_Click" />
+                <MenuItem x:Name="menuHideTools" Header="{DynamicResource mw.menu.hidetools}" Click="HideSpectrum_Click" />
                 <Separator />
                 <MenuItem Header="{DynamicResource mw.menu.shortcuts}" Click="Shortcuts_Click" InputGestureText="F1" />
                 <MenuItem Header="{DynamicResource mw.menu.debuglog}" Click="DebugLog_Click" />
